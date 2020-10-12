@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name           roksahidden
+// @name           roksahidden_zwei
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        9.1.3
+// @version        10.1.1
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -23,7 +23,7 @@
 // @include        https://*.roksa.pl/es/anuncios/*
 // @include        http://*.roksa.pl/it/annunci/mostrare/*
 // @include        https://*.roksa.pl/it/annunci/mostrare/*
-// @grant          none
+// @resource       dexie https://unpkg.com/dexie@3.0.2/dist/dexie.js
 // @run-at         document-start
 // ==/UserScript==
 
@@ -57,7 +57,7 @@ var tylkoWybraneMiasta = [
 //-----------------------------------------------------------
 
 // 0 - bardzo mało, 1 - trochę, 2 - dużo, 3 - bardzo dużo
-var doDebug = 1;
+var doDebug = 2;
 
 // flaga, czy w wynikach wyszukiwania pokazywać notatki z ogłoszeń
 var showNotesInSearch = true;
@@ -65,7 +65,7 @@ var showNotesInSearch = true;
 // czy linki w notatkach ogłoszeń mają być klikalne?
 var linkifyNotes = true;
 // czy nr telefonów w ogłoszeniach mają być linkami? działa tylko, jeżeli linkifyNotes = true
-// var linkifyNotesTel = false; // nie, 
+// var linkifyNotesTel = false; // nie,
 // var linkifyNotesTel = ['roksa', 'garso', 'google']; // wstawia dodatkowe trzy odnośniki,
 // var linkifyNotesTel = 'garso'; // zmiania na bezpośredni link do garso
 var linkifyNotesTel = ['roksa', 'google', 'garso'];
@@ -92,9 +92,7 @@ var enableExtendedSearchByPhone = true;
 //-----------------------------------------------------------
 // czy przeładować strony http na https?
 var forceHttps = true;
-// flagę należy ustawić w zależności od tego, czy jest to UserJS wywoływany przez przeglądarkę po załadowaniu treści (true),
-// bądź zwykły skrypt ładowany w trakcie parsowania strony (false) - wtedy skrypt czeka na załadowanie DOMa
-var isUserJs = false;
+
 //-----------------------------------------------------------
 
 // CSSy do zaaplikowania
@@ -132,7 +130,7 @@ var cssForSearch = [
     'div.roksahidden_tooltip_wrapper { padding-top: 1px; }',
     '',
 ].join('\n');
-    
+
 var cssForNotesInSearch = [
     '.roksahidden_tooltip {white-space: pre; max-height: 15em; max-width: 600px; font-size: 1em; line-height: 110%; overflow: hidden; border: 1px dotted #CE4AE6; display: block !important; margin-top: 3px; padding: 1px; padding-right: 2px; }',
     '.anonshint-tooltip.ui-tooltip {max-width: 620px !important; }',
@@ -162,7 +160,7 @@ var favoritiesListEngine = new function(){
         } else {
             mode = parseInt(mode);
         }
-        debug.info('switch class, mode: {}', mode); 
+        debug.info('switch class, mode: {}', mode);
         var targetClass = '';
         switch(mode){
             case 0:
@@ -173,10 +171,10 @@ var favoritiesListEngine = new function(){
                 break;
         }
 
-        this.myElements.forEach(function(e2){
+        this.myElements.forEach((e2) => {
             dom.applyTargetClass(e2, targetClass);
         });
-        this.mySwitchers.forEach(function(e2, idx){
+        this.mySwitchers.forEach((e2, idx) => {
             dom.applyTargetClass(e2, idx === mode ? 'roksahidden_active' : '');
         });
         commonUtils.setCssMode(mode);
@@ -224,18 +222,18 @@ var favoritiesListEngine = new function(){
         elem.className = elem.className + ' roksahidden_active';
     }
 
-    this.processFavorities = function(){
+    this.processFavorities = async function(){
         favoritiesEngine.init();
 
         var xp = dom.getNodes("//div[@id='user_content']/div[contains(@class, 'user_anonse_mini_cont')]/div[contains(@id, 'an_nr_')]");
         var favoritiesSize = xp.snapshotLength;
-        debug.info('process favorities, start with {} elements', favoritiesSize); 
+        debug.info('process favorities, start with {} elements', favoritiesSize);
 
-        var myIdsToHide = {}; 
-        var idToElem = {};
-        var idToNotatka = {};
+        var myIdsToHide = {};
+        var idToElem = new Map();
+        var idToNotatka = new Map();
         var ids = [];
-        
+
         var log = '{} --> hide = {}, {}';
         if (debug.isTraceEnabled()) log += '; {}; {}';
 
@@ -243,39 +241,39 @@ var favoritiesListEngine = new function(){
             let elem = xp.snapshotItem(i);
             var id = elem.getAttribute('id').replace(/[^0-9]/g, '');
             debug.debug('------------------------------------------------');
-            debug.debug('processing {} {}', 
+            debug.debug('processing {} {}',
                 function(){return elem.getAttribute('id');},
                 function(){return dom.getElemText(".//div[@class='favourites_name']", elem);}
             );
-            if (typeof myIdsToHide[id] !== 'undefined'){ 
+            if (typeof myIdsToHide[id] !== 'undefined'){
                 debug.warn('Duplicate anons id: {}, skipping', id);
                 continue;
             }
             ids.push(id);
-            idToElem[id] = elem;
+            idToElem.set(id, elem);
             var itemResult = {'doHide': false, 'reason': ''};
             var form = dom.getNode(".//form[contains(@class, 'user_note_form')]", elem);
             var city = dom.getElemText(".//div[@class='favourites_content_list'][1]", elem);
-            
+
             var txt = '';
             favoritiesEngine.isAnonsCityOkImpl(city, itemResult);
             if (form !== null){
                 txt = dom.getElemText(".//textarea[contains(@class, 'user_note_tresc')]", form);
                 commonUtils.saveNote(id, txt);
                 favoritiesEngine.isNotatkaTextOkImpl(txt, itemResult);
-                var submitListener = new function(){ 
+                var submitListener = new function(){
                     this.id = id;
                     this.city = city;
                     this.form = form;
                     this.elem = elem;
-                    this.handleEvent = function(evt){
+                    this.handleEvent = async function(evt){
                         var txt2 = dom.getElemText(".//textarea[contains(@class, 'user_note_tresc')]", this.form);
-                        favoritiesEngine.updateIdToHide(this.id, this.city, txt2);
-                        commonUtils.saveNote(this.id, txt2);
+                        await favoritiesEngine.updateIdToHide(this.id, this.city, txt2);
+                        await commonUtils.saveNote(this.id, txt2);
                         favoritiesListEngine.validatePhoneNo(this.elem, txt2);
                     }
                 };
-                idToNotatka[id] = txt;
+                idToNotatka.set(id, txt);
                 form.addEventListener('submit', submitListener, false);
             } else {
                 debug.warn('Can not find form with custom note, id: {}', id);
@@ -287,16 +285,20 @@ var favoritiesListEngine = new function(){
             } else {
                 myIdsToHide[id] = 0;
             }
-            
+
             if (enableExtendedSearchByPhone && txt !== ''){
+
+                const cache = {}
+
                 const title = dom.getElemText(".//div[@class='favourites_name']", elem)
-                cacheEngine.put('title', id, title)
-                
+                cache.title = title
+
                 const thumbImg = dom.getNodeByCss('div.favourites_box_image img', elem)
                 if (thumbImg !== null) {
-                    cacheEngine.put('thumb', id, thumbImg.getAttribute('src'))
+                    cache.thumb = [ thumbImg.getAttribute('src') ]
+                    cache.thumbIdx = 0
                 }
-                
+
                 let txt2 = txt
                 const telNode = dom.getNodeByCss('.dane_anonsu_tel', elem)
                 if (telNode != null) {
@@ -305,14 +307,37 @@ var favoritiesListEngine = new function(){
                         txt2 = txt2 + '\n' + telElements.splice(1).join('-')
                     }
                 }
-                
-                indexEngine.indexPhoneNos(id, txt2)
-            }            
+
+                await indexEngine.indexPhoneNos(id, txt2, cache, (oldCache, newCache) => {
+                    if (typeof oldCache.thumb === 'string' || typeof oldCache.thumb === 'undefined') {
+                        // stary cache starego typu, lub brak informacji
+                        return newCache
+                    }
+                    if (typeof newCache.thumb === 'undefined') {
+                        // w nowym brak informacji, a w starym jest - skopiuj ze starego
+                        if (typeof oldCache.thumb !== 'undefined') {
+                            newCache.thumb = oldCache.thumb
+                            newCache.thumbIdx = oldCache.thumbIdx
+                        }
+                        return newCache
+                    }
+                    const idx = oldCache.thumb.indexOf(newCache.thumb[0])
+                    if (idx === -1) {
+                        // w starym na liście brak tego obrazka - użyj nowego
+                        return newCache
+                    }
+
+                    // w starym na liście jest ten obrazek, zaktualizuj tylko na której jest pozycji
+                    newCache.thumbIdx = idx
+                    newCache.thumb = oldCache.thumb
+                    return newCache
+                })
+            }
         }
-        
-        commonUtils.saveIdsToHide(myIdsToHide);
+
+        await commonUtils.saveIdsToHide(myIdsToHide);
         commonUtils.registerNoteChangeEvent((id, newNote) => {
-            var elem = idToElem[id];
+            var elem = idToElem.get(id);
             if (!elem){
                 return ;
             }
@@ -320,7 +345,7 @@ var favoritiesListEngine = new function(){
             var textarea = dom.getNode(".//textarea[contains(@class, 'user_note_tresc')]", elem);
             textarea.value = newNote;
         });
-        
+
         // apply UI changes
         debug.info("Applying UI changes on {} elements", ids.length);
         var targetClass = null;
@@ -332,24 +357,24 @@ var favoritiesListEngine = new function(){
                 targetClass = ' roksahidden_dim';
                 break;
         }
-        
+
         for (var i=0; i<ids.length; i++){
             var id = ids[i];
             var doHide = myIdsToHide[id] === 1;
-            var elem = idToElem[id];
+            var elem = idToElem.get(id);
             if (targetClass !== null && doHide){
                 dom.applyTargetClass(elem, targetClass);
             }
             this.linkifyTelNo(elem, id);
-            var txt = idToNotatka[id];
+            var txt = idToNotatka.get(id);
             if (typeof txt === 'string'){
                 this.validatePhoneNo(elem, txt, id);
             }
         }
-        
+
         const blokowane = dom.getNodes("//div[@id='blokowane']//div[contains(@class, 'blokowane_box')]");
         const blokowaneSize = blokowane.snapshotLength;
-        debug.info('process blokowane, start with {} elements', blokowaneSize); 
+        debug.info('process blokowane, start with {} elements', blokowaneSize);
         for (let i=0; i<blokowaneSize; i++){
             const div = blokowane.snapshotItem(i);
             let img = dom.getNodes(".//img[contains(@src, 'mini')]", div);
@@ -363,13 +388,13 @@ var favoritiesListEngine = new function(){
                 continue;
             }
             nr = nr.dataset.nr;
-            
+
             const a = dom.createElem('a', {'href':'/pl/anonse/pokaz/' + nr} );
             img.parentElement.insertBefore(a, img);
             img.parentElement.removeChild(img);
             a.appendChild(img);
         }
-        
+
         debug.info("UI changes done");
     }
 
@@ -379,7 +404,7 @@ var favoritiesListEngine = new function(){
         }
         commonUtils.validatePhoneNo2(context, commonUtils.extractPhoneNumbers(notatka), id);
     }
-    
+
     this.linkifyTelNo = function(elem, id){
         var telNode = dom.getNode(".//span[contains(@class, 'dane_anonsu_tel')]", elem);
         if (telNode === null){
@@ -389,11 +414,11 @@ var favoritiesListEngine = new function(){
         telNode.parentNode.insertBefore(wrapper, telNode.nextSibling);
         commonUtils.processPhoneNumber(telNode, linkifyAnonsTel, id, wrapper);
     }
-    
-    this.processFavoritiesListPage = function() {
+
+    this.processFavoritiesListPage = async function() {
         dom.loadCss(cssForFavorities);
         debug.info('roksa process favorities start');
-        this.processFavorities();
+        await this.processFavorities();
         debug.info('roksa loading favorities ui');
         this.createSwitcher2();
         debug.info('roksa process favorities end');
@@ -418,7 +443,7 @@ var favoritiesEngine = new function(){
                 this.myPhrasesToHide.push(city);
         }
     }
-    
+
     this.isAnonsCityOkImpl = function(txt, result)
     {
         if (this.myChoosenCities.length === 0){
@@ -440,10 +465,10 @@ var favoritiesEngine = new function(){
             result.reason = 'city-unknown';
         }
     }
-    
+
     this.isNotatkaTextOkImpl = function(txt, result)
     {
-        if (result.doHide || this.myPhrasesToHide.length === 0 || 
+        if (result.doHide || this.myPhrasesToHide.length === 0 ||
             txt === null || typeof txt === 'undefined' || txt.length === 0){
             return ;
         }
@@ -456,8 +481,8 @@ var favoritiesEngine = new function(){
             }
         }
     }
-    
-    this.updateIdToHide = function(id, city, txt){
+
+    this.updateIdToHide = async function(id, city, txt){
         var itemResult = {'doHide': false, 'reason': ''};
         this.isAnonsCityOkImpl(city, itemResult);
         this.isNotatkaTextOkImpl(txt, itemResult);
@@ -465,75 +490,79 @@ var favoritiesEngine = new function(){
         var log = 'Item {} updated --> hide = {}, {}';
         if (debug.isTraceEnabled()) log += '; {}; {}';
         debug.info(log, id, itemResult.doHide, itemResult.reason, city, txt);
-        var myIdsToHide = {}; 
+        var myIdsToHide = {};
         myIdsToHide[id] = itemResult.doHide ? 1 : 0;
-        commonUtils.saveIdsToHide(myIdsToHide);
+        await commonUtils.saveIdsToHide(myIdsToHide)
     }
 }
 
 var searchListEngine = new function() {
     this.mode = 2;
-    this.processSearchPage = function()
+    this.processSearchPage = async function()
     {
-        debug.info('------------------------------------------------'); 
+        debug.info('------------------------------------------------');
         this.loadCss2();
         this.sortAnonseById();
-        this.loadAnonseData();
+        await this.loadAnonseData();
         var isByPhoneSearch = window.location.href.match(/nr_tel=[0-9]{3,}/) !== null;
-        var mode = commonUtils.getCssModeForSearch(); 
-        if (isByPhoneSearch && (mode === 0 || mode >= 3)) 
+        var mode = commonUtils.getCssModeForSearch();
+        if (isByPhoneSearch && (mode === 0 || mode >= 3))
             mode = 1;
-        var withNotesOnly = !isByPhoneSearch && commonUtils.getWithNotesOnly();    
-        if (withNotesOnly && mode === 3){ 
+        var withNotesOnly = !isByPhoneSearch && commonUtils.getWithNotesOnly();
+        if (withNotesOnly && mode === 3){
             mode = commonUtils.getPrevCssMode();
         }
-        this.processSearchResults(mode, withNotesOnly);
+        await this.processSearchResults(mode, withNotesOnly);
         if (isByPhoneSearch && this.allAnonseUrls.length > 1)
             this.addParsedLinks();
         if (showSearchSwitchBox)
             this.createSearchSwitchBox(mode, isByPhoneSearch, withNotesOnly);
         this.mode = mode;
-        
+
         if (enableExtendedSearchByPhone && isByPhoneSearch) {
-            this.loadExtendedSearchData();
+            await this.loadExtendedSearchData();
         }
     }
 
-    this.loadExtendedSearchData = function() {
+    this.loadExtendedSearchData = async function() {
         const telNo = window.location.href.match(/nr_tel=([0-9]{3})[-+]?([0-9]{3})[-+]?([0-9]{3})/).slice(1).join('-')
         const anonse = indexEngine.getByPhoneNo(telNo)
-        if (anonse == null || anonse.length === 0) {
-            return 
+        if (anonse === null || anonse.length === 0) {
+            return
         }
-        const anonseMap = {}
-        anonse.forEach(id => anonseMap[id] = true)
-        Object.keys(this.idToElem).forEach(id => delete anonseMap[id])
+        const anonseMap = new Map()
+        for (const anons of anonse) {
+            anonseMap.set(anons.id, anons)
+        }
+        for (const id of Object.keys(this.idToElem)) {
+            anonseMap.delete(id)
+        }
         const cnt = Object.keys(anonseMap).length
         if (cnt === 0) {
             return
         }
         debug.info('Found extra {} ids for tel no {}', cnt, telNo)
-        
+
         const header = dom.createElem('h2', {}, 'Pozostałe ogłoszenia dla numeru ' + telNo)
         const oldGroup = dom.getNodeByCss('div.search_result') || dom.getNodeByCss('.main_error_text')
         const newGroup = dom.createElem('div', {'class':'roxahidden_extra_group'})
-        anonse.filter(id => anonseMap[id] === true).forEach(id => {
-            const item = this.createItemFromId(id)
+        for (let anons of anonseMap.values()) {
+            const item = await this.createItemFromId(anons.id, anons.cache)
             newGroup.appendChild(item)
-        })
+        }
         oldGroup.parentNode.appendChild(header)
         oldGroup.parentNode.appendChild(newGroup)
-        
+
         // TODO: lista linków do skopiowania
     }
-    
-    this.createItemFromId = function(id) {
-        const title = cacheEngine.get('title', id)
-        const imgSrc = cacheEngine.get('thumb', id)
-        const note = commonUtils.getNote(id)
-        
-        const template = 
-            '<div><a><div class="random_item"><img><div class="podpis nowrap nazwa"></div><div class="podpis nowrap id"></div></div></a>' + 
+
+    this.createItemFromId = async function(id, cache) {
+        const title = cache.title
+        const imgSrc = cache.thumb[cache.thumbIdx]
+        const note = await commonUtils.getNote(id)
+
+        const template =
+            '<div><a><div class="random_item"><img><div class="podpis nowrap nazwa"></div><div class="podpis nowrap id"></div></div></a>' +
             '<div class="roksahidden_tooltip_wrapper"><div class="roksahidden_tooltip_2"></div></div></div>'
         let doc = new DOMParser().parseFromString(template, 'text/html')
         dom.getNodeByCss('a', doc).setAttribute('href', '/pl/anonse/pokaz/' + id)
@@ -551,15 +580,16 @@ var searchListEngine = new function() {
         const noteElem = dom.getNodeByCss('.roksahidden_tooltip_2', doc)
         noteElem.innerText = note
         anonsEngine.linkifyNotes(noteElem)
-        
+
         return doc.querySelector('body *')
     }
 
+    /** Sortuje anonse po id na liście wyników wyszukiwania */
     this.sortAnonseById = function(){
         let xp = dom.getNodes("//div[@id='anons_group']/a");
         let extractIdPattern = /\/([0-9]+)$/g;
         let itemsArr = [];
-        let itemsMap = {};
+        let itemsMap = new Map();
         debug.debug('Sorting anonse by id');
         for (let i=0; i<xp.snapshotLength; i++){
             let elem = xp.snapshotItem(i);
@@ -569,17 +599,17 @@ var searchListEngine = new function() {
             let id = extractIdPattern.exec(href);
             if (id !== null){
                 id = id[1]
-                itemsMap[id] = elem;
+                itemsMap.set(id, elem);
                 itemsArr.push(id);
             }
         }
         commonUtils.sortNum(itemsArr);
         itemsArr.reverse();
-        itemsArr.forEach(function(id){
-            let elem = itemsMap[id];
+        for (const id of itemsArr){
+            let elem = itemsMap.get(id);
             let par = elem.parentNode;
             par.insertBefore(elem, par.firstChild);
-        });
+        }
     }
 
     /**
@@ -587,36 +617,36 @@ var searchListEngine = new function() {
                    1 - wyszarz
                    2 - pokaż wszystkie
                    3 - pokaż tylko bez notatek (potencjalnie nowe)
-       @param withNotesOnly ukrywa te bez notatek             
+       @param withNotesOnly ukrywa te bez notatek
      */
-    this.processSearchResults = function(mode, withNotesOnly) {
-        debug.info('process search, mode: {}, withNotesOnly: {}', mode, withNotesOnly); 
-        var idsToHide = commonUtils.getIdsToHide() || {};
-        var allIds = Object.keys(this.idToElem);
-        debug.info('search filter, start: {}', allIds.length);
+    this.processSearchResults = async function(mode, withNotesOnly) {
+        debug.info('process search, mode: {}, withNotesOnly: {}', mode, withNotesOnly);
+        var idsToHide = await commonUtils.getIdsToHide() || {};
+        var allIds = this.idToElem.keys();
+        debug.info('search filter, start: {}', this.idToElem.size);
         var count = 0;
-        allIds.forEach(function(id){
+        for (const id of allIds) {
+            const elem = this.idToElem.get(id);
             debug.debug('processing anons id {}', id);
-            var elem = this.idToElem[id];
-            var cssClass = this.getTargetCssClass(mode, id, idsToHide, withNotesOnly);
+            const cssClass = await this.getTargetCssClass(mode, id, idsToHide, withNotesOnly);
             dom.applyTargetClass(elem, cssClass);
             if (cssClass){
                 count++;
             }
             debug.debug('{} --> cssClass: {}', id, cssClass);
-        }, this);
-        debug.info('process search hide {} out of {} items', count, allIds.length); 
+        }
+        debug.info('process search hide {} out of {} items', count, this.idToElem.size);
     }
-    this.idToElem = {};
-    
-    this.loadAnonseData = function(){ 
+    this.idToElem = null;
+
+    this.loadAnonseData = async function(){
         // TODO: informacja o tym, czy jakieś ogłoszenia zostały wycięte przez filtr "ukryte ogłoszenia" roksy
         var xp = dom.getNodes("//div[@id='anons_group']/a");
         debug.info('search list, start: {}', xp.snapshotLength);
         var count = 0;
         var extractIdPattern = /\/([0-9]+)$/g;
-        this.idToElem = {};
-        var idToHref = {};
+        this.idToElem = new Map();
+        var idToHref = new Map();
         var allIds = [];
         for (var i=0; i<xp.snapshotLength; i++){
             var elem = xp.snapshotItem(i);
@@ -626,88 +656,93 @@ var searchListEngine = new function() {
             var id = extractIdPattern.exec(href);
             if (id !== null){
                 id = id[1];
-                searchListEngine.idToElem[id] = elem;
+                this.idToElem.set(id, elem);
                 idToHref[id] = href;
                 allIds.push(id);
-                this.updateNotes(elem, id); 
+                await this.updateNotes(elem, id);
             } else {
                 debug.warn('Can not extract id from href: {}', href);
             }
         }
-        commonUtils.registerNoteChangeEvent(function(id,newNote){
-            var elem = searchListEngine.idToElem[id];
-            if (elem){
-                debug.debug('Updating note id {} callback', id);
-                if (showNotesInSearch){
-                    searchListEngine.updateNotes(elem, id, newNote);
-                }
-                var withNotesOnly = commonUtils.getWithNotesOnly();
-                var idsToHide = commonUtils.getIdsToHide() || {};
-                var cssClass = searchListEngine.getTargetCssClass(searchListEngine.mode, id, idsToHide, withNotesOnly);
-                dom.applyTargetClass(elem, cssClass);
-            }
-        });
-        commonUtils.registerNotesHideChanges(function(idsToHide){
-            debug.debug('Updating ids to hide from callback');
-            var withNotesOnly = commonUtils.getWithNotesOnly();
-            for (var id in searchListEngine.idToElem){
-                var cssClass = searchListEngine.getTargetCssClass(searchListEngine.mode, id, idsToHide, withNotesOnly);
-                var elem = searchListEngine.idToElem[id];
-                dom.applyTargetClass(elem, cssClass);
-            }
-        });
+        commonUtils.registerNoteChangeEvent(this._noteChangeEventSubscriber.bind(this));
+        commonUtils.registerNotesHideChanges(this._noteHideEventSubscriber.bind(this));
         commonUtils.sortNum(allIds);
-        allIds.forEach(function(id){
+        for (const id of allIds) {
             this.allAnonseUrls.push(this.resolveRelative(idToHref[id]));
-        }, this);
+        }
     }
+
+    this._noteChangeEventSubscriber = async function(id,newNote) {
+        var elem = this.idToElem.get(id);
+        if (elem){
+            debug.debug('Updating note id {} callback', id);
+            if (showNotesInSearch){
+                await this.updateNotes(elem, id, newNote);
+            }
+            var withNotesOnly = commonUtils.getWithNotesOnly();
+            var idsToHide = await commonUtils.getIdsToHide() || {};
+            var cssClass = await this.getTargetCssClass(this.mode, id, idsToHide, withNotesOnly);
+            dom.applyTargetClass(elem, cssClass);
+        }
+    }
+
+    this._noteHideEventSubscriber = async function(idsToHide) {
+        debug.debug('Updating ids to hide from callback');
+        var withNotesOnly = commonUtils.getWithNotesOnly();
+        for (const id of this.idToElem.keys()){
+            var cssClass = await this.getTargetCssClass(this.mode, id, idsToHide, withNotesOnly);
+            var elem = this.idToElem.get(id);
+            dom.applyTargetClass(elem, cssClass);
+        }
+    }
+
     /** Czy dany anons powinien zostać ukryty */
-    this.getTargetCssClass = function(mode, id, idsToHide, withNotesOnly){
+    this.getTargetCssClass = async function(mode, id, idsToHide, withNotesOnly){
         if (mode === 3){
             // tylko-bez-notatek
-            return commonUtils.hasNote(id) ? 'roksahidden_search_hide' : '';
+            return await commonUtils.hasNote(id) ? 'roksahidden_search_hide' : '';
         }
         // TODO: to jest nieładnie tu wywoływana funkcja...
-        if (withNotesOnly && !commonUtils.hasNote(id)){
+        if (withNotesOnly && !await commonUtils.hasNote(id)){
             return 'roksahidden_search_hide';
         }
-        
+
         if (idsToHide[id] === 1){
             switch(mode){
-                case 0: 
-                    return 'roksahidden_search_hide'; 
-                case 1: 
+                case 0:
+                    return 'roksahidden_search_hide';
+                case 1:
                     return 'roksahidden_search_dim';
             }
         }
         return '';
     }
-    this.switchClass = function(mode){
+    this.switchClass = async function(mode){
         var withNotesOnly = commonUtils.getWithNotesOnly();
         if (mode === 3 && withNotesOnly){
             // wyłączam tryb tylko-z-notatkami
             withNotesOnly = false;
             dom.applyTargetClass(this.myOnlyWithNotesSwitch, '');
         }
-        this.processSearchResults(mode, withNotesOnly);
-        this.mySwitchers.forEach(function(e2, idx){
+        await this.processSearchResults(mode, withNotesOnly);
+        this.mySwitchers.forEach((e2, idx) => {
             dom.applyTargetClass(e2, idx === mode ? 'roksahidden_active' : '');
         });
-        commonUtils.setCssModeForSearch(mode); 
+        commonUtils.setCssModeForSearch(mode);
         commonUtils.setWithNotesOnly(withNotesOnly);
         this.mode = mode;
         return false;
     }
-    this.switchWithNotesOnly = function(){
-        var mode = commonUtils.getCssModeForSearch(); 
+    this.switchWithNotesOnly = async function(){
+        var mode = commonUtils.getCssModeForSearch();
         var newWithNotesOnly = this.myOnlyWithNotesSwitch.className.indexOf('roksahidden_active') === -1;
         if (newWithNotesOnly && mode === 3){
             // włączam tylko z notatkami, wyłączam tylko-bez-notatek
             mode = commonUtils.getPrevCssMode();
         }
-        this.processSearchResults(mode, newWithNotesOnly);
+        await this.processSearchResults(mode, newWithNotesOnly);
         dom.applyTargetClass(this.myOnlyWithNotesSwitch, newWithNotesOnly ? 'roksahidden_active' : '');
-        this.mySwitchers.forEach(function(e2, idx){
+        this.mySwitchers.forEach((e2, idx) => {
             dom.applyTargetClass(e2, idx === mode ? 'roksahidden_active' : '');
         });
         commonUtils.setWithNotesOnly(newWithNotesOnly);
@@ -723,13 +758,13 @@ var searchListEngine = new function() {
             return document.location.protocol + '//' + document.location.hostname + link;
         return link;
     }
-    
+
     /** Dodaje notatkę do tooltipa anonsu */
-    this.updateNotes = function(elem, id, itemNotes){
+    this.updateNotes = async function(elem, id, itemNotes){
         if (!showNotesInSearch){
             return ;
         }
-        itemNotes = itemNotes || commonUtils.getNote(id);
+        itemNotes = itemNotes || await commonUtils.getNote(id);
         var tooltipNotes = dom.getNode(".//div[@class='tooltip_content']/div[@class='roksahidden_tooltip']", elem);
         if (itemNotes !== null){
             if (tooltipNotes === null){
@@ -745,7 +780,7 @@ var searchListEngine = new function() {
             }
         }
     }
-    
+
     this.loadCss2 = function(){
         var cssText = cssForSearch;
         if (showNotesInSearch){
@@ -753,7 +788,7 @@ var searchListEngine = new function() {
         }
         dom.loadCss(cssText);
     }
-    
+
     this.allAnonseUrls = [];
     this.mySwitchers = [];
     this.myOnlyWithNotesSwitch = null;
@@ -764,7 +799,7 @@ var searchListEngine = new function() {
         div.appendChild(span);
         var textArea = dom.createElem('textarea', {'readonly':'readonly'}, this.allAnonseUrls.join('\n'));
         div.appendChild(textArea);
-        
+
         var parent = dom.getNode("//div[@class='search_result']/div[@class='stronnicowanie'][2]");
         parent.parentNode.insertBefore(div, parent.nextSibling);
     }
@@ -808,7 +843,7 @@ var searchListEngine = new function() {
             this.mySwitchers.push(elem);
 
             xp.appendChild(dom.createElem('span', { 'style':'padding-left:1em'} ));
-            
+
             elem = dom.createElem('a', { 'class':'roksahiddencss'} );
             if (onlyWithNotes){
                 elem.className = elem.className + ' roksahidden_active';
@@ -819,10 +854,10 @@ var searchListEngine = new function() {
             elem.appendChild(elem2);
             this.myOnlyWithNotesSwitch = elem;
         }
-        
+
         elem = this.mySwitchers[mode];
         elem.className = elem.className + ' roksahidden_active';
-        
+
         var parent = dom.getNode("//div[@class='search_result']");
         if (parent !== null){
             parent.insertBefore(xp, parent.firstChild)
@@ -831,7 +866,7 @@ var searchListEngine = new function() {
 }
 
 var anonsEngine = new function() {
-    this.processAnonsPage = function(){
+    this.processAnonsPage = async function(){
         dom.loadCss(cssForAnons);
         this.processMainPhoneNumber();
         var notatka = document.getElementById('notatka_content');
@@ -842,10 +877,10 @@ var anonsEngine = new function() {
         favoritiesEngine.init();
         const txt = notatka.innerText.trim()
         if (txt !== ''){
-            this.updateStoredNote(notatka);
+            await this.updateStoredNote(notatka);
             this.validatePhoneNo(notatka);
             this.linkifyNotes(notatka);
-            this.updateNotatkaIndex(notatka)
+            await this.updateNotatkaIndex(notatka)
         }
         this.hookNotatkaChanged(notatka);
         this.hookNotatkaLinkClick(notatka)
@@ -872,7 +907,7 @@ var anonsEngine = new function() {
         // Options for the observer (which mutations to observe)
         const config = { attributes: false, childList: true, subtree: false };
         // Start observing the target node for configured mutations
-        observer.observe(notatka, config);    
+        observer.observe(notatka, config);
     }
     this.hookNotatkaLinkClick = function(notatka){
         const processLinkClicked = function(href){
@@ -884,7 +919,7 @@ var anonsEngine = new function() {
                     sel = sel + ', a[href$="/' + id[1] + '"][href*=".roksa.pl/"]';
                 }
             }
-            
+
             const aas = notatka.querySelectorAll(sel);
             for (const aa of aas){
                 if (!aa.className.includes('roksahidden_clicked')){
@@ -908,24 +943,53 @@ var anonsEngine = new function() {
         });
         lcc.onmessage = (ev) => processLinkClicked(ev.data);
     }
-    this.updateNotatkaIndex = function(notatka){
+    this.updateNotatkaIndex = async function(notatka){
         if (!enableExtendedSearchByPhone) {
             return
         }
         const id = this.extractId()
         const phoneNo = this.extractMainPhoneNo()
         const txt = notatka.innerText.trim()
-        indexEngine.indexPhoneNos(id, txt + '\n' + phoneNo)
+
+        const cache = {}
+
         const title = dom.getNodeByCss('#anons_header h2.next_header')
         if (title !== null) {
-            cacheEngine.put('title', id, title.innerText)
+            cache.title = new DOMParser().parseFromString(title.innerHTML, 'text/html').documentElement.innerText.trim()
         }
-        const thumb = dom.getNodeByCss('ul.galeria-thumb-list li a img')
-        if (thumb !== null) {
-            let thumbSrc = thumb.getAttribute('src')
-            cacheEngine.put('thumb', id, thumbSrc)
+
+        // TODO: pobrać listę
+        const thumbs = dom.getNodesByCss('ul.galeria-thumb-list li a img')
+        if (thumbs.length !== 0) {
+            cache.thumb = thumbs.map(thumb => thumb.getAttribute('src'))
+            cache.thumbIdx = 0
         }
-}
+
+        await indexEngine.indexPhoneNos(id, txt + '\n' + phoneNo, cache, (oldCache, newCache) => {
+            if (typeof oldCache.thumb === 'string' || typeof oldCache.thumb === 'undefined' || typeof oldCache.thumbIdx === 'undefined') {
+                // stary cache starego typu, lub brak informacji
+                return newCache
+            }
+            if (typeof newCache.thumb === 'undefined') {
+                // w nowym brak informacji, a w starym jest - skopiuj ze starego
+                if (typeof oldCache.thumb !== 'undefined') {
+                    newCache.thumb = oldCache.thumb
+                    newCache.thumbIdx = oldCache.thumbIdx
+                }
+                return newCache
+            }
+
+            // na naszej liście szukamy obrazka, który jest obecnie miniaturką
+            const oldThumbSrc = oldCache.thumb[oldCache.thumbIdx]
+            const idx = newCache.thumb.indexOf(oldThumbSrc)
+            if (idx !== -1) {
+                // na obecnej liście jest ten obrazek, tylko aktualizuję id
+                newCache.thumbIdx = idx
+            }
+
+            return newCache
+        })
+    }
     this.validatePhoneNo = function(notatka){
         if (!validatePhoneNoInAnons){
             return ;
@@ -936,7 +1000,7 @@ var anonsEngine = new function() {
         });
         commonUtils.validatePhoneNo2(null, notesTelNumbers, this.extractId());
     }
-    
+
     this.linkifyNotes = function(notatka){
         if (!linkifyNotes){
             return ;
@@ -960,9 +1024,8 @@ var anonsEngine = new function() {
             dom.splitNode(node, expr, processor);
         });
     }
-    
-    this.linkifyTel = function(tel)
-    {
+
+    this.linkifyTel = function(tel){
         if (linkifyNotesTel === false){
             return tel;
         }
@@ -987,19 +1050,18 @@ var anonsEngine = new function() {
         }
         return tel;
     }
-    
-    this.processMainPhoneNumber = function()
-    {
+
+    this.processMainPhoneNumber = function() {
         var telNode = dom.getNode("//span[contains(@class, 'dane_anonsu_tel')]");
         if (telNode === null){
             debug.warn('Can not find phone number node');
             return ;
         }
         let providers = linkifyAnonsTel.slice(0);
-        providers.reverse(); 
+        providers.reverse();
         commonUtils.processPhoneNumber(telNode, providers, this.extractId());
     }
-    
+
     this.mainPhoneNo = ''
     this.extractMainPhoneNo = function() {
         if (this.mainPhoneNo.length > 0) {
@@ -1015,24 +1077,13 @@ var anonsEngine = new function() {
         }
         return this.mainPhoneNo = telElements.splice(1).join('-')
     }
-    
-    this.updateStoredNote = function(notatka)
+
+    this.updateStoredNote = async function(notatka)
     {
         var txt = notatka.innerText.trim();
-//        if (txt !== '' && txt.indexOf('\n') < 0){
-//            var html = notatka.innerHTML.trim();
-//            html = html.replace(/<br[ \/]?>/g, '\r\n');
-//            html = html.replace(/<\/?[a-z]+[^<]*>/g,'');
-//            html = html.replace(/&gt;/g,'>');
-//            html = html.replace(/&lt;/g,'<');
-//            html = html.replace(/&amp;/g,'&');
-//            html = html.replace(/&apos;/g,'\'');
-//            html = html.replace(/&quot;/g,'"');
-//            txt = html;
-//        }
         var id = this.extractId();
-        commonUtils.saveNote(id, txt);
-        favoritiesEngine.updateIdToHide(id, this.extractCity(), txt);
+        await commonUtils.saveNote(id, txt);
+        await favoritiesEngine.updateIdToHide(id, this.extractCity(), txt);
     }
     this.citi = '';
     this.extractCity = function()
@@ -1067,39 +1118,23 @@ var anonsEngine = new function() {
     }
 }
 
-var cacheEngine = new function() {
-    this.storage = window.localStorage;
-    
-    this.put = function(type, key, value) {
-        const cacheKey = 'cache_' + type + '_' + key
-        if (typeof value === 'undefined' || value === null || value === '') {
-            this.storage.removeItem(cacheKey)
-        } else {
-            const prevValue = this.storage.getItem(cacheKey)
-            if (prevValue === null || prevValue !== value) {
-                this.storage.setItem(cacheKey, value)
-            }
-        }
-    }
-    
-    this.get = function(type, key, defaultValue) {
-        const cacheKey = 'cache_' + type + '_' + key
-        const value = this.storage.getItem(cacheKey)
-        return value === null ? defaultValue : value
-    }
-}
-
 var indexEngine = new function() {
-    this.storage = window.localStorage;
-    
-    this.indexPhoneNos = function(id, text) {
+
+    /**
+     * Indeksuje numery telefony w podanym ogłoszeniu
+     * @param id id ogłoszenia
+     * @param text Treść do zaindeksowania - wyszukana numerów telefonów
+     * @param cache Dodatkowe dane do zapisania wraz z ogłoszeniem
+     * @param cacheMergeFunction(oldCache, newCache) Funkcja, która ma zwrócić nowy cache na podstawie starego
+     */
+    this.indexPhoneNos = async function(id, text, cache, cacheMergeFunction) {
         // TODO: tu by się przydało jeszcze coś takiego, że jeżeli to jest ekstra numer telefonu, i nie ma go w notatkach,
         // to zapisujemy go osobno, żeby nam nie uciekł -> przydatne z listy ulubionych, gdy DIVy zmieniają nr jak rękawiczki
         const expr = /[5678][0-9]{2}-[0-9]{3}-[0-9]{3}/g
         const byPhone = new Map()
-        
+
         const textLines = text.match(/[^\n\r]+/g)
-        textLines.forEach(line => {
+        for (const line of textLines) {
             expr.lastIndex = 0
             let match = expr.exec(line)
             while (match !== null){
@@ -1107,105 +1142,49 @@ var indexEngine = new function() {
                 byPhone.set(phone, true)
                 match = expr.exec(line)
             }
-        })
+        }
 
         // posortowana tablica nr telefonów w tym ogłoszeniu
         const byPhone2 = [...byPhone.keys()]
         commonUtils.sortNum(byPhone2)
-        byPhone2.forEach(phoneNo => this._addIdToPhoneIndex(id, phoneNo))
-        
-        const keyById = 'idx_byId_' + id
-        const byIdPhones = this.storage.getItem(keyById)
-        if (byIdPhones !== null) {
-            byIdPhones.split(',').forEach(phoneNo => {
-                // jeżeli w obecnym ogłoszeniu nie ma tego nr telefonu, to trzeba dla tego nr zaktualizować indeks
-                if (byPhone.get(phoneNo) !== true) {
-                    this._removeIdFromPhoneIndex(id, phoneNo)
-                }
-            });
-        }
-        
-        if (byPhone.size === 0) {
-            this.storage.removeItem(keyById)
-            debug.trace('Removed index of id {}', id)
-        } else {
-            const byPhone2s = byPhone2.join(',')
-            if (byIdPhones === null || byIdPhones !== byPhone2s) {
-                this.storage.setItem(keyById, byPhone2s)
-                debug.trace('Updated index of id {} to contain {} phone nos', id, byPhone.size.length)
-            }
-        }
-    }
-    
-    this.getByPhoneNo = function(phoneNo) {
-        const keyByPhone = 'idx_byPhone_' + phoneNo.replace(/[^0-9]/g, '')
-        let byPhoneIds = this.storage.getItem(keyByPhone)
-        if (byPhoneIds === null){
-            return null
-        }
-        const byPhoneIdsArr = []
-        byPhoneIds.split(',').forEach(function(id){
-            byPhoneIdsArr.push(parseInt(id))
-        });
-        return byPhoneIdsArr
-    }
-    
-    this.remove = function(id, phoneNo) {
-        const keyByPhone = 'idx_byPhone_' + phoneNo.replace(/[^0-9]/g, '')
-        this.storage.removeItem(keyByPhone)
-        const keyById = 'idx_byId_' + id
-        this.storage.removeItem(keyById)
-    }
-    
-    this._addIdToPhoneIndex = function(id, phoneNo) {
-        const keyByPhone = 'idx_byPhone_' + phoneNo
-        const byPhoneIds = this.storage.getItem(keyByPhone)
-        if (byPhoneIds === null){
-            this.storage.setItem(keyByPhone, id)
-            debug.trace('Created index of phone {}', phoneNo)
-        } else if (!byPhoneIds.includes('' + id)) { // szybki test na stringach
-            const byPhoneIdsMap = new Map()
-            byPhoneIds.split(',').forEach(id => {
-                byPhoneIdsMap.set(id, true)
-            })
-            byPhoneIdsMap.set(id, true)
-            const byPhoneIdsArr = [...byPhoneIdsMap.keys()]
-            commonUtils.sortNum(byPhoneIdsArr)
-            const byPhoneIds2 = byPhoneIdsArr.join(',')
-            if (byPhoneIds !== byPhoneIds2) {
-                this.storage.setItem(keyByPhone, byPhoneIdsArr)
-                debug.trace('Updated index of phone {} to contain {} ids', phoneNo, byPhoneIdsArr.length)
-            }
-        }
-    }
-    
-    this._removeIdFromPhoneIndex = function(id, phoneNo) {
-        const keyByPhone = 'idx_byPhone_' + phoneNo
-        let byPhoneIds = this.storage.getItem(keyByPhone)
-        if (byPhoneIds === null){
+
+        // TODO: jakiś cache lepszy, bo np. miniaturki na liście wyszukiwania są inne, niż pierwsza w liście zdjęć
+        // cache merge function
+        // i teraz take
+        // na liście anonsów mamy jeden
+        // i jeżeli jest w liście w cache, to nic nie ruszamy
+        // tylko ustawiamy ew indeks
+
+        let prevHint = null
+        if (!cache || !cacheMergeFunction || (prevHint = await database.getSearchHint(id)) === null){
+            await database.saveSearchHint(id, byPhone2, cache || {})
             return
         }
-        const byPhoneIdsMap = {}
-        byPhoneIds.split(',').forEach(id => {
-            byPhoneIdsMap[id] = true
-        })
-        delete byPhoneIdsMap[id]
-        byPhoneIds = Object.keys(byPhoneIdsMap)
-        if (byPhoneIds.length === 0) {
-            this.storage.removeItem(keyByPhone)
-            debug.trace('Removed index of phone {}', phoneNo)
-        } else {
-            this.storage.setItem(keyByPhone, byPhoneIds.join(','))
-            debug.trace('Updated index of phone {} to contain {} ids', phoneNo, byPhoneIds.length)
-        }
+
+        const mergedCache = cacheMergeFunction(prevHint.cache, cache)
+        await database.saveSearchHint(id, byPhone2, mergedCache || {})
+    }
+
+    /**
+     * Zwraca listę ogłoszeń, dla których zaindeksowano podany numer telefonu, lub null, jeżeli takich brak
+     * @param phoneNo Nr telefonu
+     * @return tablica obiektów, klucze obiektów: id, cache
+     */
+    this.getAnonsDataByPhoneNo = async function(phoneNo) {
+        const keyByPhone = phoneNo.replace(/[^0-9]/g, '')
+        const result = await database.querySearchHints(keyByPhone)
+        return result && result.length > 0 ? result : null
     }
 }
 // ----------------------------------- UTILS -----------------------------------
 
 var commonUtils = new function(){
-    
+
     this.storage = window.localStorage;
-    
+
+    this.noteChangedChannel = new BroadcastChannel('NoteChangedChannel');
+    this.idsToHideChangedChannel = new BroadcastChannel('idsToHideChangedChannel');
+
     this.getCssMode = function() {
         var mode = parseInt(this.storage.getItem('mode'));
         if (mode === null || isNaN(mode)) {
@@ -1259,107 +1238,124 @@ var commonUtils = new function(){
     this.setWithNotesOnly = function(value){
         if (value === null || value === false){
             this.storage.removeItem('with_notes_only');
-        } else 
+        } else
         if (this.getCssModeForSearch() !== value){
             this.storage.setItem('with_notes_only', value);
             debug.info('save with notes only: {}', value);
         }
     }
-    
-    this.getIdsToHide = function(idsText)
-    {
-        var ids = idsText || this.storage.getItem('items');
-        if (ids === null){
-            return null;
+
+    /**
+     * Pobiera id ogłoszeń do ukrycia
+     * @return obiekt, w którym klucze to id, a wartości to zawsze 1
+     */
+    this.getIdsToHide = async function() {
+        const idsToHide = await database.getIdsToHide()
+        const result = {}
+        for (const id of idsToHide) {
+            result[id] = 1
         }
-        var ids2 = {};
-        ids.split(',').forEach(function(id){
-            ids2[id] = 1
-        });
-        return ids2;
+        return result
     }
 
-    this.saveIdsToHide = function(idsToHide)
-    {
-        var oldIdsToHide = this.getIdsToHide();
-        if (oldIdsToHide !== null){
-            for (var k in idsToHide){
-                oldIdsToHide[k] = idsToHide[k];
-            }
-            idsToHide = oldIdsToHide;
-        }
-        var idsToHide2 = [];
-        for (var k in idsToHide){
-            if (idsToHide[k]) idsToHide2.push(k);
-        }
-        this.sortNum(idsToHide2);
-        var idsToHide3 = idsToHide2.join();
-        var ids = this.storage.getItem('items');
-        if (ids === null || idsToHide3 !== ids){
-            debug.info('Saving ad ids to hide, count {}', idsToHide2.length);
-            debug.debug('items: {}', idsToHide3); 
-            this.storage.setItem('items', idsToHide3);
+    /**
+     * Zapisuje id ogłoszeń do ukrycia
+     * @param idsToHide obiekt, w którym klucze to id, a wartości to flaga, czy ukryć, czy nie
+     */
+    this.saveIdsToHide = async function(idsToHide) {
+        const countIdsToHide1 = await database.countIdsToHide()
+        const toHide = []
+        const toShow = []
+        Object.keys(idsToHide).forEach(id => (idsToHide[id] ? toHide : toShow).push(id))
+        await database.setIdsToHide(toHide)
+        await database.removeIdsToHide(toShow)
+        const countIdsToHide2 = await database.countIdsToHide()
+        if (countIdsToHide1 !== countIdsToHide2){
+            debug.info('Saved ad ids to hide, count {}', countIdsToHide2)
+            const idsToHide2 = await this.getIdsToHide()
+            debug.debug('items: {}', () => Object.keys(idsToHide2).join());
+            this.idsToHideChangedChannel.postMessage(idsToHide2)
         } else {
-            debug.info('No ad ids changed'); 
+            debug.info('No ad ids changed');
         }
     }
-    
-    this.saveNote = function(id, note){
+
+    /** Zapisuje notatkę, i jeżeli się zmieniła, rozgłasza zdarzenie */
+    this.saveNote = async function(id, note){
         if (showNotesInSearch === false) return ;
         if (note === null || note.length === 0){
-            this.storage.removeItem('an_' + id);
+            await database.removeNote(id)
             debug.debug('Note for id {} has been deleted', id);
             return ;
         }
         note = note.replace(/[\r\n]+/g,'\n');
-        const oldNote = this.storage.getItem('an_' + id);
-        if (oldNote === null || note !== LZString.decompressFromUTF16(oldNote)){
-            const noteCompressed = LZString.compressToUTF16(note);
-            this.storage.setItem('an_' + id, noteCompressed);
+        const oldNote = await this.getNote(id)
+        if (oldNote === null || note !== oldNote){
+            await database.saveNote(id, note)
+            this.noteChangedChannel.postMessage({id: id, note: note})
             debug.debug('Note for id {} has been updated', id);
         }
     }
-    
-    this.getNote = function(id){
-        var note = this.storage.getItem('an_' + id);
-        if (note !== null){
-            note = LZString.decompressFromUTF16(note);
-        }
-        return note;
+
+    /** Zwraca treść notatki, lub null */
+    this.getNote = async function(id){
+        const note = await database.getNote(id)
+        return note
     }
 
-    this.hasNote = function(id){
-        var note = this.storage.getItem('an_' + id);
+    /** Zwraca informację, czy istnieje notatka dla tego anonsu */
+    this.hasNote = async function(id){
+        var note = await this.getNote(id)
         return note !== null;
     }
-    
-    /** @param callback(anonsId, newNote) */
+
+    /**
+     * Rejestruje powiadomienie o zmianie treści notatki
+     * @param callback(anonsId, newNote)
+     */
     this.registerNoteChangeEvent = function(callback){
-        window.addEventListener('storage', function(e) { 
-            var key = e.key;
-            if (!key.startsWith('an_')){
-                return ;
-            }
-            key = key.substring(3);
-            var note = LZString.decompressFromUTF16(e.newValue);
-            callback.call(this, key, note);
-        });
+        this.noteChangedChannel.addEventListener('message', (event) => {
+            // TODO: czy tutaj nie trzeba filtrować własnych eventów?
+            callback.call(this, event.data.id, event.data.note)
+        })
     }
-    
+
+    /**
+     * Rejestruje powiadomienie o zmianie ukrywanych ogłoszeń
+     * @param callback(obj), gdzie klucze w obiekcie to id ogłoszeń
+     */
     this.registerNotesHideChanges = function(callback){
-        window.addEventListener('storage', function(e) { 
-            if (e.key !== 'items'){
-                return ;
-            }
-            var ids = commonUtils.getIdsToHide(e.newValue);
-            callback.call(this, ids);
-        });
+        this.idsToHideChangedChannel.addEventListener('message', (event) => {
+            // TODO: czy tutaj nie trzeba filtrować własnych eventów?
+            callback.call(this, event.data)
+        })
     }
-    
+
     this.sortNum = function(array){
         array.sort(function(a, b){return parseInt(a)-parseInt(b);});
     }
-    
+
+    this.deepEquals = function(x, y) {
+        if (x === y) {
+            return true
+        }
+        if (x !== null && y !== null && typeof x === "object" && typeof y === "object") {
+            const xKeys = Object.keys(x)
+            if (xKeys.length != Object.keys(y).length)
+                return false
+
+            for (let i = 0; i < xKeys.length; i++) {
+                const prop = xKeys[i]
+                if (!y.hasOwnProperty(prop) || !this.deepEquals(x[prop], y[prop])) {
+                    return false
+                }
+            }
+            return true
+        }
+        return false
+    }
+
+
     this.getLinkCfgFor_google = function(tel){
         var telGarso = tel.replace(/[ -]/g, '-');
         var url = 'https://www.google.pl/search?q=%22' + telGarso + '%22';
@@ -1379,7 +1375,7 @@ var commonUtils = new function(){
     this.getLinkCfgFor_roksa = function(tel){
         var telRoxa = tel.replace(/[ -]/g, '');
         var url = '/pl/szukaj/?anons_type=0&anons_state=0&anons_city_part=&cenaod=0&cenado=0&cenapoldo=0' +
-            '&cena15do=0&cenanocdo=0&wiekod=0&wiekdo=0&wagaod=0&wagado=0&wzrostod=0&wzrostdo=0&biustod=0&biustdo=0' + 
+            '&cena15do=0&cenanocdo=0&wiekod=0&wiekdo=0&wagaod=0&wagado=0&wzrostod=0&wzrostdo=0&biustod=0&biustdo=0' +
             '&jezyk=&dzien=0&hod=&hdo=&wyjazdy=0&name=&nr_tel=' + telRoxa + '&key_word=#show';
         var favicon = 'https://img.roksa.pl/favicon-16x16.png';
         var hint = 'szukaj \'' + telRoxa + '\' na roksa';
@@ -1387,7 +1383,7 @@ var commonUtils = new function(){
     }
     this.getLinkCfgFor_garso = function(tel){
         var telGarso = tel.replace(/[ -]/g, '-');
-        var url = 'http://www.garsoniera.com.pl/forum/index.php?app=core&module=search' + 
+        var url = 'http://www.garsoniera.com.pl/forum/index.php?app=core&module=search' +
             '&do=quick_search&search_filter_app%5Bforums%5D=1&addon=2&search_term=%22' + telGarso + '%22';
         ;
         var hint = 'szukaj \'' + telGarso + '\' na garsonierze';
@@ -1406,11 +1402,11 @@ var commonUtils = new function(){
 //        search_app_filters[forums][noPreview]=1
 //        search_app_filters[forums][sortKey]=date
 //        search_app_filters[forums][sortDir]=0
-        var url = 'http://www.garsoniera.com.pl/forum/index.php?app=core&module=search&section=search&do=search&fromsearch=1' + 
-            '&search_app=forums&andor_type=or&search_content=both' + 
-            '&search_app_filters%5Bforums%5D%5BnoPreview%5D=1' + 
-            '&search_app_filters%5Bforums%5D%5BsortKey%5D=date' + 
-            '&search_app_filters%5Bforums%5D%5BsortDir%5D=0' + 
+        var url = 'http://www.garsoniera.com.pl/forum/index.php?app=core&module=search&section=search&do=search&fromsearch=1' +
+            '&search_app=forums&andor_type=or&search_content=both' +
+            '&search_app_filters%5Bforums%5D%5BnoPreview%5D=1' +
+            '&search_app_filters%5Bforums%5D%5BsortKey%5D=date' +
+            '&search_app_filters%5Bforums%5D%5BsortDir%5D=0' +
             '&search_term=%22' + telGarso + '%22+' + id;
         ;
         var hint = 'szukaj \'' + telGarso + '\' ' + id + ' na garsonierze';
@@ -1457,7 +1453,7 @@ var commonUtils = new function(){
             }
         }
     }
-    
+
     this.extractPhoneNumbers = function(txt, arr){
         arr = arr || new Array();
         var expr = /(?:^|[^0-9])([5678][0-9]{2}[ -][0-9]{3}[ -][0-9]{3})/g;
@@ -1470,10 +1466,9 @@ var commonUtils = new function(){
             }while((match = expr.exec(txt)) !== null);
         }
         return arr;
-    }    
+    }
 
-    this.processPhoneNumber = function(telNode, providers, id, wrapper)
-    {
+    this.processPhoneNumber = function(telNode, providers, id, wrapper) {
         if (telNode === null){
             return ;
         }
@@ -1501,6 +1496,118 @@ var commonUtils = new function(){
         });
    }
 }
+
+var database = new function(){
+    this.db = null
+    this.init = function(){
+        this.db = new Dexie("roxahidden");
+        this.db.version(1).stores({
+            searchHints: 'id, *telefony',
+            notes: 'id',
+            hiddenState: 'id'
+        });
+        return this.db.open().catch (function (err) {
+            debug.always('Failed to open db: {}', err);
+        })
+    }
+
+    /** Zwraca treść notatki lub null */
+    this.getNote = async function(id){
+        const note = await this.db.notes.get(id)
+        return note ? note.note : null
+    }
+    this.saveNote = async function(id, note){
+        await this.db.notes.put({id: id, note:note})
+    }
+    this.removeNote = async function(id){
+        await this.db.notes.where('id').equals(id).delete()
+    }
+
+    /** Zwraca tablicę z id ogłoszeń do ukrycia */
+    this.getIdsToHide = async function() {
+        return await this.db.hiddenState.toCollection().keys()
+    }
+
+    this.countIdsToHide = async function() {
+        return await this.db.hiddenState.count()
+    }
+
+    /**
+     * Zaznacza wybrane ogłoszenia, że są do ukrycia
+     * @param ids tablica id ogłoszeń
+     */
+    this.setIdsToHide = async function(ids) {
+        if (ids.length === 0) {
+            return
+        }
+        const idsAsObjects = ids.map(id => { return { id: id } })
+        await this.db.hiddenState.bulkPut(idsAsObjects)
+    }
+
+    /**
+     * Zaznacza wybrane ogłoszenia, że mają być pokazywane
+     * @param ids tablica id ogłoszeń
+     */
+    this.removeIdsToHide = async function(ids) {
+        if (ids.length === 0) {
+            return
+        }
+        await this.db.hiddenState.bulkDelete(ids)
+    }
+
+    /**
+     * Zwraca listę anonsów, które spełniają kryteria wyszukiwania po nr telefonu
+     * @param phoneNo
+     * @return
+     */
+    this.querySearchHints = async function(phoneNo) {
+        return await this.db.searchHints
+            .where('telefony')
+            .equals(phoneNo)
+            .toArray()
+    }
+
+    /**
+     * Zwraca dane anonsu do kryteriów wyszukiwania
+     * @param id
+     * @return
+     */
+    this.getSearchHint = async function(id) {
+        const obj = await this.db.searchHints.get(id)
+        return obj ? obj : null
+    }
+
+    /**
+     * Zapisuje dane anonsu do wyszukiwania
+     * @param id identyfikator anonsu
+     * @param telefony posortowana tablica z numerami telefonów skojarzonych z anonsem
+     * @param cache inne dodatkowe dane do zapisania
+     */
+    this.saveSearchHint = async function(id, telefony, cache) {
+        const obj = {
+            id: id,
+            telefony: telefony,
+            cache: cache
+        }
+        const prev = await this.db.searchHints.get(id)
+        if (!commonUtils.deepEquals(obj, prev)) {
+            await this.db.searchHints.put(obj)
+            if (typeof prev === 'undefined'){
+                debug.debug('Added search hint for id {}', id)
+            } else {
+                debug.debug('Updated search hint for id {}', id)
+            }
+        }
+    }
+
+    /**
+     * Usuwa dane anonsu z wyników wyszukiwania
+     */
+    this.removeSearchHint = async function(id) {
+        await this.db.searchHints.where('id').equals(id).delete()
+    }
+}
+
 
 
 // ----------------------------------- TOOLS -----------------------------------
@@ -1561,7 +1668,7 @@ var debug = new function() {
             var idx = msg.indexOf('{}');
             if (idx < 0) {
                 break;
-            }    
+            }
             var replacement = args[i];
             logData.push(msg.substr(0, idx));
             if (replacement === null){
@@ -1600,7 +1707,7 @@ var dom = new function(){
         var xp = document.evaluate(path, rootNode || document, null, XPathResult.UNORDERED_NODE_SNAPSHOT_TYPE, null);
         return xp;
     }
-    
+
     this.getNodeByCss = function(cssSelector, rootNode)
     {
         if (rootNode === undefined){
@@ -1617,15 +1724,15 @@ var dom = new function(){
     {
         const nodes = (rootNode || document).querySelectorAll(cssSelector);
         return [...nodes];
-    }    
-    
+    }
+
     this.getElemText = function(path, elem, trim){
         var elem2 = this.getNode(path, elem);
         var val = null;
         if (elem2 !== null){
             if (elem2.nodeName === 'INPUT' || elem2.nodeName === 'TEXTAREA')
                 val = elem2.value;
-            else 
+            else
                 val = elem2.textContent;
         }
         if (val !== null && (typeof trim === 'undefined' || trim === true)){
@@ -1633,7 +1740,7 @@ var dom = new function(){
         }
         return val;
     }
-    
+
     this.createElem = function(tag, attr, chlid) {
         const el = document.createElement(tag);
         if (typeof chlid === 'string' || chlid instanceof String){
@@ -1664,7 +1771,7 @@ var dom = new function(){
             fun(node);
         }
     }
-    
+
     this.splitNode = function(node, expr, fun){
         var parent = node.parentNode;
         var text = node.data;
@@ -1698,7 +1805,7 @@ var dom = new function(){
         var elem = this.createElem('style', { 'type':'text/css' }, cssText);
         head.appendChild(elem);
     }
-    
+
     this.applyTargetClass = function(elem, targetClass, expr)
     {
         var v0 = elem.className.trim();
@@ -1716,7 +1823,7 @@ var dom = new function(){
 
 // ----------------------------------- MAIN -----------------------------------
 var main = new function(){
-    this.init = function(){        
+    this.init = function(){
         if (!Array.isArray) {
             Array.isArray = function(arg) {
                 return Object.prototype.toString.call(arg) === '[object Array]';
@@ -1737,541 +1844,78 @@ var main = new function(){
     }
 
     // main loader
-    this.loadAndDispatch = function(){
+    this.loadAndDispatch = async function(){
+        debug.info('loadAndDispatch - start')
+        const startTime = performance.now()
         try {
             this.init();
+            await database.init()
             if (this.inSearchPage())
                 // wyszukiwanie
-                searchListEngine.processSearchPage();
+                await searchListEngine.processSearchPage();
             else
             if (this.inFavoritiesListPage()){
                 // lista anonsów
                 // setTimeout(favoritiesListEngine.processFavoritiesListPage.bind(favoritiesListEngine), 500);
-                favoritiesListEngine.processFavoritiesListPage();
-            } else 
+                await favoritiesListEngine.processFavoritiesListPage();
+            } else
             if (this.inAnonsPage())
-                anonsEngine.processAnonsPage();
+                await anonsEngine.processAnonsPage();
             else
                 debug.warn('Unmatched url: {}', window.location.href);
+            debug.info('loadAndDispatch - end, took {} ms', (performance.now()-startTime))
         } catch (e) {
-            debug.always('Failed to process something: {}', e);
-            throw e;
+            debug.always('Failed to process something, took {} ms: {}', (performance.now()-startTime), e);
+            // throw e;
         }
+    }
+
+    this.waitForDexie = function(){
+        if (typeof Dexie !== 'undefined') {
+            return Promise.resolve()
+        }
+        const start = performance.now()
+        return new Promise( (resolve, reject) => {
+            const timer = window.setInterval(() => {
+                if (typeof Dexie !== 'undefined') {
+                    window.clearInterval(timer)
+                    resolve()
+                } else
+                if (performance.now() - start > 30000) {
+                    window.clearInterval(timer)
+                    reject('timeout while waiting for Dexie')
+                }
+            }, 50)
+        })
     }
 }
 
 // main function
-debug.info('rxa-hdn: {}', window.location);
-//if (doDebug >= 2) {
-//    window.roxaHidden = this
-//}
+debug.info('rxa-hdn: {}, {}', window.location, document.readyState);
+
 if (forceHttps && window.location.protocol === 'http:'){
     window.location.replace(window.location.href.replace('http://', 'https://'));
     return ;
 }
-if (isUserJs){
-    main.loadAndDispatch();
+
+window.addEventListener('error', function(event) { debug.always('Error in JS: {}', event) })
+
+const start = () => main.waitForDexie().then(main.loadAndDispatch.bind(main)).catch(err => debug.always('{}', err))
+
+if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', start, false)
 } else {
-    document.addEventListener('DOMContentLoaded', main.loadAndDispatch.bind(main), false);
+    start()
 }
 
-// http://pieroxy.net/blog/pages/lz-string/index.html
-// https://github.com/pieroxy/lz-string/tree/master/libs
-
-// Copyright (c) 2013 Pieroxy <pieroxy@pieroxy.net>
-// This work is free. You can redistribute it and/or modify it
-// under the terms of the WTFPL, Version 2
-// For more information see LICENSE.txt or http://www.wtfpl.net/
-//
-// For more information, the home page:
-// http://pieroxy.net/blog/pages/lz-string/testing.html
-//
-// LZ-based compression algorithm, version 1.4.4
-var LZString = (function() {
-
-// private property
-var f = String.fromCharCode;
-var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-var keyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$";
-var baseReverseDic = {};
-
-function getBaseValue(alphabet, character) {
-  if (!baseReverseDic[alphabet]) {
-    baseReverseDic[alphabet] = {};
-    for (var i=0 ; i<alphabet.length ; i++) {
-      baseReverseDic[alphabet][alphabet.charAt(i)] = i;
-    }
-  }
-  return baseReverseDic[alphabet][character];
+window.roxaHidden = {
+    database: database,
+    dom: dom,
+    commonUtils: commonUtils,
+    debug: debug,
+    favoritiesListEngine: favoritiesListEngine,
+    favoritiesEngine: favoritiesEngine,
+    anonsEngine: anonsEngine
 }
-
-var LZString = {
-  compressToBase64 : function (input) {
-    if (input == null) return "";
-    var res = LZString._compress(input, 6, function(a){return keyStrBase64.charAt(a);});
-    switch (res.length % 4) { // To produce valid Base64
-    default: // When could this happen ?
-    case 0 : return res;
-    case 1 : return res+"===";
-    case 2 : return res+"==";
-    case 3 : return res+"=";
-    }
-  },
-
-  decompressFromBase64 : function (input) {
-    if (input == null) return "";
-    if (input == "") return null;
-    return LZString._decompress(input.length, 32, function(index) { return getBaseValue(keyStrBase64, input.charAt(index)); });
-  },
-
-  compressToUTF16 : function (input) {
-    if (input == null) return "";
-    return LZString._compress(input, 15, function(a){return f(a+32);}) + " ";
-  },
-
-  decompressFromUTF16: function (compressed) {
-    if (compressed == null) return "";
-    if (compressed == "") return null;
-    return LZString._decompress(compressed.length, 16384, function(index) { return compressed.charCodeAt(index) - 32; });
-  },
-
-  //compress into uint8array (UCS-2 big endian format)
-  compressToUint8Array: function (uncompressed) {
-    var compressed = LZString.compress(uncompressed);
-    var buf=new Uint8Array(compressed.length*2); // 2 bytes per character
-
-    for (var i=0, TotalLen=compressed.length; i<TotalLen; i++) {
-      var current_value = compressed.charCodeAt(i);
-      buf[i*2] = current_value >>> 8;
-      buf[i*2+1] = current_value % 256;
-    }
-    return buf;
-  },
-
-  //decompress from uint8array (UCS-2 big endian format)
-  decompressFromUint8Array:function (compressed) {
-    if (compressed===null || compressed===undefined){
-        return LZString.decompress(compressed);
-    } else {
-        var buf=new Array(compressed.length/2); // 2 bytes per character
-        for (var i=0, TotalLen=buf.length; i<TotalLen; i++) {
-          buf[i]=compressed[i*2]*256+compressed[i*2+1];
-        }
-
-        var result = [];
-        buf.forEach(function (c) {
-          result.push(f(c));
-        });
-        return LZString.decompress(result.join(''));
-
-    }
-
-  },
-
-
-  //compress into a string that is already URI encoded
-  compressToEncodedURIComponent: function (input) {
-    if (input == null) return "";
-    return LZString._compress(input, 6, function(a){return keyStrUriSafe.charAt(a);});
-  },
-
-  //decompress from an output of compressToEncodedURIComponent
-  decompressFromEncodedURIComponent:function (input) {
-    if (input == null) return "";
-    if (input == "") return null;
-    input = input.replace(/ /g, "+");
-    return LZString._decompress(input.length, 32, function(index) { return getBaseValue(keyStrUriSafe, input.charAt(index)); });
-  },
-
-  compress: function (uncompressed) {
-    return LZString._compress(uncompressed, 16, function(a){return f(a);});
-  },
-  _compress: function (uncompressed, bitsPerChar, getCharFromInt) {
-    if (uncompressed == null) return "";
-    var i, value,
-        context_dictionary= {},
-        context_dictionaryToCreate= {},
-        context_c="",
-        context_wc="",
-        context_w="",
-        context_enlargeIn= 2, // Compensate for the first entry which should not count
-        context_dictSize= 3,
-        context_numBits= 2,
-        context_data=[],
-        context_data_val=0,
-        context_data_position=0,
-        ii;
-
-    for (ii = 0; ii < uncompressed.length; ii += 1) {
-      context_c = uncompressed.charAt(ii);
-      if (!Object.prototype.hasOwnProperty.call(context_dictionary,context_c)) {
-        context_dictionary[context_c] = context_dictSize++;
-        context_dictionaryToCreate[context_c] = true;
-      }
-
-      context_wc = context_w + context_c;
-      if (Object.prototype.hasOwnProperty.call(context_dictionary,context_wc)) {
-        context_w = context_wc;
-      } else {
-        if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate,context_w)) {
-          if (context_w.charCodeAt(0)<256) {
-            for (i=0 ; i<context_numBits ; i++) {
-              context_data_val = (context_data_val << 1);
-              if (context_data_position == bitsPerChar-1) {
-                context_data_position = 0;
-                context_data.push(getCharFromInt(context_data_val));
-                context_data_val = 0;
-              } else {
-                context_data_position++;
-              }
-            }
-            value = context_w.charCodeAt(0);
-            for (i=0 ; i<8 ; i++) {
-              context_data_val = (context_data_val << 1) | (value&1);
-              if (context_data_position == bitsPerChar-1) {
-                context_data_position = 0;
-                context_data.push(getCharFromInt(context_data_val));
-                context_data_val = 0;
-              } else {
-                context_data_position++;
-              }
-              value = value >> 1;
-            }
-          } else {
-            value = 1;
-            for (i=0 ; i<context_numBits ; i++) {
-              context_data_val = (context_data_val << 1) | value;
-              if (context_data_position ==bitsPerChar-1) {
-                context_data_position = 0;
-                context_data.push(getCharFromInt(context_data_val));
-                context_data_val = 0;
-              } else {
-                context_data_position++;
-              }
-              value = 0;
-            }
-            value = context_w.charCodeAt(0);
-            for (i=0 ; i<16 ; i++) {
-              context_data_val = (context_data_val << 1) | (value&1);
-              if (context_data_position == bitsPerChar-1) {
-                context_data_position = 0;
-                context_data.push(getCharFromInt(context_data_val));
-                context_data_val = 0;
-              } else {
-                context_data_position++;
-              }
-              value = value >> 1;
-            }
-          }
-          context_enlargeIn--;
-          if (context_enlargeIn == 0) {
-            context_enlargeIn = Math.pow(2, context_numBits);
-            context_numBits++;
-          }
-          delete context_dictionaryToCreate[context_w];
-        } else {
-          value = context_dictionary[context_w];
-          for (i=0 ; i<context_numBits ; i++) {
-            context_data_val = (context_data_val << 1) | (value&1);
-            if (context_data_position == bitsPerChar-1) {
-              context_data_position = 0;
-              context_data.push(getCharFromInt(context_data_val));
-              context_data_val = 0;
-            } else {
-              context_data_position++;
-            }
-            value = value >> 1;
-          }
-
-
-        }
-        context_enlargeIn--;
-        if (context_enlargeIn == 0) {
-          context_enlargeIn = Math.pow(2, context_numBits);
-          context_numBits++;
-        }
-        // Add wc to the dictionary.
-        context_dictionary[context_wc] = context_dictSize++;
-        context_w = String(context_c);
-      }
-    }
-
-    // Output the code for w.
-    if (context_w !== "") {
-      if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate,context_w)) {
-        if (context_w.charCodeAt(0)<256) {
-          for (i=0 ; i<context_numBits ; i++) {
-            context_data_val = (context_data_val << 1);
-            if (context_data_position == bitsPerChar-1) {
-              context_data_position = 0;
-              context_data.push(getCharFromInt(context_data_val));
-              context_data_val = 0;
-            } else {
-              context_data_position++;
-            }
-          }
-          value = context_w.charCodeAt(0);
-          for (i=0 ; i<8 ; i++) {
-            context_data_val = (context_data_val << 1) | (value&1);
-            if (context_data_position == bitsPerChar-1) {
-              context_data_position = 0;
-              context_data.push(getCharFromInt(context_data_val));
-              context_data_val = 0;
-            } else {
-              context_data_position++;
-            }
-            value = value >> 1;
-          }
-        } else {
-          value = 1;
-          for (i=0 ; i<context_numBits ; i++) {
-            context_data_val = (context_data_val << 1) | value;
-            if (context_data_position == bitsPerChar-1) {
-              context_data_position = 0;
-              context_data.push(getCharFromInt(context_data_val));
-              context_data_val = 0;
-            } else {
-              context_data_position++;
-            }
-            value = 0;
-          }
-          value = context_w.charCodeAt(0);
-          for (i=0 ; i<16 ; i++) {
-            context_data_val = (context_data_val << 1) | (value&1);
-            if (context_data_position == bitsPerChar-1) {
-              context_data_position = 0;
-              context_data.push(getCharFromInt(context_data_val));
-              context_data_val = 0;
-            } else {
-              context_data_position++;
-            }
-            value = value >> 1;
-          }
-        }
-        context_enlargeIn--;
-        if (context_enlargeIn == 0) {
-          context_enlargeIn = Math.pow(2, context_numBits);
-          context_numBits++;
-        }
-        delete context_dictionaryToCreate[context_w];
-      } else {
-        value = context_dictionary[context_w];
-        for (i=0 ; i<context_numBits ; i++) {
-          context_data_val = (context_data_val << 1) | (value&1);
-          if (context_data_position == bitsPerChar-1) {
-            context_data_position = 0;
-            context_data.push(getCharFromInt(context_data_val));
-            context_data_val = 0;
-          } else {
-            context_data_position++;
-          }
-          value = value >> 1;
-        }
-
-
-      }
-      context_enlargeIn--;
-      if (context_enlargeIn == 0) {
-        context_enlargeIn = Math.pow(2, context_numBits);
-        context_numBits++;
-      }
-    }
-
-    // Mark the end of the stream
-    value = 2;
-    for (i=0 ; i<context_numBits ; i++) {
-      context_data_val = (context_data_val << 1) | (value&1);
-      if (context_data_position == bitsPerChar-1) {
-        context_data_position = 0;
-        context_data.push(getCharFromInt(context_data_val));
-        context_data_val = 0;
-      } else {
-        context_data_position++;
-      }
-      value = value >> 1;
-    }
-
-    // Flush the last char
-    while (true) {
-      context_data_val = (context_data_val << 1);
-      if (context_data_position == bitsPerChar-1) {
-        context_data.push(getCharFromInt(context_data_val));
-        break;
-      }
-      else context_data_position++;
-    }
-    return context_data.join('');
-  },
-
-  decompress: function (compressed) {
-    if (compressed == null) return "";
-    if (compressed == "") return null;
-    return LZString._decompress(compressed.length, 32768, function(index) { return compressed.charCodeAt(index); });
-  },
-
-  _decompress: function (length, resetValue, getNextValue) {
-    var dictionary = [],
-        next,
-        enlargeIn = 4,
-        dictSize = 4,
-        numBits = 3,
-        entry = "",
-        result = [],
-        i,
-        w,
-        bits, resb, maxpower, power,
-        c,
-        data = {val:getNextValue(0), position:resetValue, index:1};
-
-    for (i = 0; i < 3; i += 1) {
-      dictionary[i] = i;
-    }
-
-    bits = 0;
-    maxpower = Math.pow(2,2);
-    power=1;
-    while (power!=maxpower) {
-      resb = data.val & data.position;
-      data.position >>= 1;
-      if (data.position == 0) {
-        data.position = resetValue;
-        data.val = getNextValue(data.index++);
-      }
-      bits |= (resb>0 ? 1 : 0) * power;
-      power <<= 1;
-    }
-
-    switch (next = bits) {
-      case 0:
-          bits = 0;
-          maxpower = Math.pow(2,8);
-          power=1;
-          while (power!=maxpower) {
-            resb = data.val & data.position;
-            data.position >>= 1;
-            if (data.position == 0) {
-              data.position = resetValue;
-              data.val = getNextValue(data.index++);
-            }
-            bits |= (resb>0 ? 1 : 0) * power;
-            power <<= 1;
-          }
-        c = f(bits);
-        break;
-      case 1:
-          bits = 0;
-          maxpower = Math.pow(2,16);
-          power=1;
-          while (power!=maxpower) {
-            resb = data.val & data.position;
-            data.position >>= 1;
-            if (data.position == 0) {
-              data.position = resetValue;
-              data.val = getNextValue(data.index++);
-            }
-            bits |= (resb>0 ? 1 : 0) * power;
-            power <<= 1;
-          }
-        c = f(bits);
-        break;
-      case 2:
-        return "";
-    }
-    dictionary[3] = c;
-    w = c;
-    result.push(c);
-    while (true) {
-      if (data.index > length) {
-        return "";
-      }
-
-      bits = 0;
-      maxpower = Math.pow(2,numBits);
-      power=1;
-      while (power!=maxpower) {
-        resb = data.val & data.position;
-        data.position >>= 1;
-        if (data.position == 0) {
-          data.position = resetValue;
-          data.val = getNextValue(data.index++);
-        }
-        bits |= (resb>0 ? 1 : 0) * power;
-        power <<= 1;
-      }
-
-      switch (c = bits) {
-        case 0:
-          bits = 0;
-          maxpower = Math.pow(2,8);
-          power=1;
-          while (power!=maxpower) {
-            resb = data.val & data.position;
-            data.position >>= 1;
-            if (data.position == 0) {
-              data.position = resetValue;
-              data.val = getNextValue(data.index++);
-            }
-            bits |= (resb>0 ? 1 : 0) * power;
-            power <<= 1;
-          }
-
-          dictionary[dictSize++] = f(bits);
-          c = dictSize-1;
-          enlargeIn--;
-          break;
-        case 1:
-          bits = 0;
-          maxpower = Math.pow(2,16);
-          power=1;
-          while (power!=maxpower) {
-            resb = data.val & data.position;
-            data.position >>= 1;
-            if (data.position == 0) {
-              data.position = resetValue;
-              data.val = getNextValue(data.index++);
-            }
-            bits |= (resb>0 ? 1 : 0) * power;
-            power <<= 1;
-          }
-          dictionary[dictSize++] = f(bits);
-          c = dictSize-1;
-          enlargeIn--;
-          break;
-        case 2:
-          return result.join('');
-      }
-
-      if (enlargeIn == 0) {
-        enlargeIn = Math.pow(2, numBits);
-        numBits++;
-      }
-
-      if (dictionary[c]) {
-        entry = dictionary[c];
-      } else {
-        if (c === dictSize) {
-          entry = w + w.charAt(0);
-        } else {
-          return null;
-        }
-      }
-      result.push(entry);
-
-      // Add w+entry[0] to the dictionary.
-      dictionary[dictSize++] = w + entry.charAt(0);
-      enlargeIn--;
-
-      w = entry;
-
-      if (enlargeIn == 0) {
-        enlargeIn = Math.pow(2, numBits);
-        numBits++;
-      }
-
-    }
-  }
-};
-  return LZString;
-})();
 
 })();
