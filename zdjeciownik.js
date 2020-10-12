@@ -2,10 +2,10 @@
 // @name           zdjeciownik
 // @namespace      zdjeciownik
 // @description    Szybkie ściąganie zdjęć
-// @version        0.1.0
+// @version        0.2.0
 // @include        https://www.freexcafe.com/*
 // @grant          none
-// @run-at         document-start
+// @run-at         document-end
 // ==/UserScript==
 
 (function (){
@@ -14,11 +14,33 @@
 // 0 - bardzo mało, 1 - trochę, 2 - dużo, 3 - bardzo dużo
 const doDebug = 2;
 
-const css = [
-'.zdjeciownik_hidden{display: none;}',
-'.zdjeciownik_pokaz {color: #A77A7A; background-color: #331A25; text-decoration: none; border: #A77A7A 1px solid; padding: 0.427em 1.125em; font-size: 2em; font-size: calc(16px + 0.5vw); text-shadow: 0.125em 0.125em 0.1875em black; border-radius: 6px; display: inline-block; cursor: pointer;',
-''
-].join('\n');
+const css = `
+#content {
+    padding-top: 0.4375em;
+}
+.thumbs_v_new {
+    padding-top: 1.875em;
+}
+.zdjeciownik_pokaz {
+    color: #A77A7A;
+    background-color: #331A25;
+    text-decoration: none;
+    border: #A77A7A 1px solid;
+    padding: 0.427em 1.125em;
+    font-size: 2em;
+    font-size: calc(16px + 0.5vw);
+    text-shadow: 0.125em 0.125em 0.1875em black;
+    border-radius: 6px;
+    display: inline-block;
+    cursor: pointer;
+}
+.zdjeciownik_lista img {
+    max-width: 100%;
+}
+.zdjeciownik_lista {
+    list-style: none;
+}
+`;
 
 // ----------------------------------- TOOLS -----------------------------------
 
@@ -78,7 +100,7 @@ const debug = new function() {
             const idx = msg.indexOf('{}');
             if (idx < 0) {
                 break;
-            }    
+            }
             const replacement = args[i];
             logData.push(msg.substr(0, idx));
             if (replacement === null){
@@ -109,12 +131,6 @@ const debug = new function() {
 
 const dom = new function(){
 
-    this.getNode = function(path, rootNode)
-    {
-        const xp2 = document.evaluate(path, rootNode || document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-        return xp2.singleNodeValue;
-    }
-
     this.getNodeByCss = function(cssSelector, rootNode)
     {
         if (rootNode === undefined){
@@ -133,105 +149,24 @@ const dom = new function(){
         return [...nodes];
     }
 
-
-    this.getNodes = function(path, rootNode)
-    {
-        const xp = document.evaluate(path, rootNode || document, null, XPathResult.UNORDERED_NODE_SNAPSHOT_TYPE, null);
-        return xp;
-    }
-    
-    this.getElemText = function(path, elem, trim){
-        const elem2 = this.getNode(path, elem);
-        let val = null;
-        if (elem2 !== null){
-            if (elem2.nodeName === 'INPUT' || elem2.nodeName === 'TEXTAREA')
-                val = elem2.value;
-            else 
-                val = elem2.textContent;
-        }
-        if (val !== null && (typeof trim === 'undefined' || trim === true)){
-            val = val.trim();
-        }
-        return val;
-    }
-    
-    this.createElem = function(tag, attr, text) {
+    this.createElem = function(tag, attr, chlid) {
         const el = document.createElement(tag);
-        if (typeof text !== 'undefined'){
-            el.textContent = text;
+        if (typeof chlid === 'string' || chlid instanceof String){
+            el.textContent = chlid;
+        } else
+        if (chlid instanceof HTMLElement){
+            el.appendChild(chlid);
         }
         if (typeof attr !== 'undefined')
-            for (var k in attr)
-                el.setAttribute(k, attr[k]);
+            for (let [k, v] of Object.entries(attr))
+                el.setAttribute(k, v);
         return el;
-    }
-
-    this.traverseChildNodes = function(node, fun) {
-        let next;
-        if (node.nodeType === 1) {
-            // (Element node)
-            if ((node = node.firstChild) !== null) {
-                do {
-                    // Recursively call traverseChildNodes on each child node
-                    next = node.nextSibling;
-                    this.traverseChildNodes(node, fun);
-                } while((node = next) !== null);
-            }
-        } else if (node.nodeType === 3) {
-            // (Text node)
-            fun(node);
-        }
-    }
-    
-    this.splitNode = function(node, expr, fun){
-        const parent = node.parentNode;
-        const text = node.data;
-        let start = 0;
-        let match;
-        expr.lastIndex = 0;
-        if ((match = expr.exec(text)) !== null){
-            do{
-                const matchedValue = match[0];
-                const prevText = text.substr(start, expr.lastIndex - matchedValue.length - start);
-                if (prevText.length > 0){
-                    parent.insertBefore(document.createTextNode(prevText), node);
-                }
-                let newNode = fun(matchedValue);
-                if (typeof newNode === 'string'){
-                    newNode = document.createTextNode(newNode);
-                }
-                parent.insertBefore(newNode, node);
-                start = expr.lastIndex;
-            }while((match = expr.exec(text)) !== null);
-            if (start < text.length){
-                const lastText = text.substr(start);
-                parent.insertBefore(document.createTextNode(lastText), node);
-            }
-            parent.removeChild(node);
-        }
     }
 
     this.loadCss = function(cssText){
         const head = document.getElementsByTagName('head')[0];
         const elem = this.createElem('style', { 'type':'text/css' }, cssText);
         head.appendChild(elem);
-    }
-    
-    this.applyTargetClass = function(elem, targetClass, expr)
-    {
-        if (elem === null){
-            return 0;
-        }
-        const v0 = elem.className.trim();
-        let cls = v0.replace(expr || /zdjeciownik_[a-z0-9_]+/, '').trim();
-        cls += ' ' + targetClass;
-        cls = cls.trim();
-        if (cls !== v0){
-            elem.className = cls;
-            return 1;
-        } else {
-            return 0;
-        }
     }
 }
 
@@ -242,59 +177,139 @@ class Main {
     prepare()
     {
         debug.info('Prepare: {}', window.location.href);
-        const cb = this.findOutCB();
-        if (cb === null){
-            debug.warn('Can not find method for {}', window.location.href);
+
+        const links = this.getImageLinks();
+        debug.debug('Found {} image links', links.length);
+        if (links.length === 0){
             return ;
         }
+
         dom.loadCss(css);
 
-        const perform1 = debug.wrap(this.perform.bind(this, cb.bind(this)));
-
         const a = dom.createElem('a', {'class': 'zdjeciownik_pokaz' }, 'Pokaż wszystkie');
-        a.addEventListener('click', perform1);
-        const content = dom.getNodeByCss('#content');
-        content.insertBefore(a, content.firstChild);
-    }
-
-    findOutCB()
-    {
-        const url = window.location.href;
-        if (url.includes('/2-metart/')){
-            return this.cbHash;
+        a.addEventListener('click', debug.wrap(this.loadImagesWithXHR.bind(this, links)));
+        let content = dom.getNodeByCss('#content');
+        if (content !== null){
+            content.insertBefore(a, content.firstChild);
+            return;
+        }
+        content = dom.getNodeByCss('.thumbs_v_new');
+        if (content !== null){
+            const div = dom.createElem('div', undefined, a);
+            content.parentNode.insertBefore(div, content);
         }
     }
 
-    cbHash(wrapper)
+    getImageLinks()
     {
-        const items = dom.getNodesByCss('#content .thumbs img');
-        debug.debug('Working on {} images', items.length);
-        items.forEach((img) => {
-            const src2 = img.src.replace('/img/', '/pics/').replace(/-thumb[^.]+/, '');
-            this.createImage(src2, wrapper);
-        });
-    }
-    
-    createImage(src, wrapper)
-    {
-        const li2 = dom.createElem('li');
-        wrapper.appendChild(li2);
-        const img2 = dom.createElem('img', {src: src });
-        const a2 = dom.createElem('a', {href: src });
-        a2.appendChild(img2);
-        li2.appendChild(a2);
+        const items = dom.getNodesByCss('#content .thumbs a, #content_v_new .thumbs_v_new a');
+        return items.map(a => a.href);
     }
 
-    perform(cb)
+    loadImagesWithXHR(items)
+    {
+        const wrappers = [];
+
+        this.replaceContent((wrapperList) => {
+            const cnt = items.length;
+            for (let i=0; i<cnt; i++){ 
+                wrappers.push({
+                    href: items[i],
+                    wrapper: this.createImageWrapper(wrapperList)
+                });
+            }
+        });
+
+        const processImage = (index) => {
+            if (index >= wrappers.length) {
+                return ;
+            }
+            const w0 = wrappers[index];
+            const url = w0.href;
+            const wrapper = w0.wrapper;
+            debug.debug('Processing image at index {} from {}', index, url);
+            const promise = this.extractImageUrl(url);
+            promise
+                .then((imgUrl) => {
+                    debug.debug('Resolved image at index {} to {}', index, imgUrl);
+                    this.createImage(imgUrl, wrapper)
+                })
+                .catch((err) => {
+                    wrapper.appendChild(dom.createElem('span', {}, err))
+                })
+                .finally(() => {
+                    processImage(index+1);
+                });
+        }
+        processImage(0);
+    }
+
+    extractImageUrl(url)
+    {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', url, true);
+            xhr.onreadystatechange = debug.wrap(() => {
+                debug.trace('XHR {} state: {}, status: {}', url, xhr.readyState, xhr.status);
+                if (xhr.readyState != 4) {
+                    return ;
+                }
+                if (xhr.status != 200){
+                    reject(`Load of ${url} failed: ${xhr.status}`);
+                    return ;
+                }
+                const respHtml = xhr.responseText;
+                const imgUrl = this.extractImageUrlFromHTML(respHtml); // this.extractImageUrlFromDocument(resp);
+                if (imgUrl === null){
+                    reject(`Can not find image in ${url}`);
+                } else {
+                    resolve(imgUrl);
+                }
+            });
+            xhr.send(null);
+        });
+    }
+
+    extractImageUrlFromHTML(html)
+    {
+        const div = dom.createElem('div');
+        div.innerHTML = html;
+        return this.extractImageUrlFromDocument(div);
+    }
+
+    extractImageUrlFromDocument(doc)
+    {
+        const img = dom.getNodeByCss('#imagelink img', doc);
+        if (img === null){
+            return null;
+        }
+        return img.src;
+    }
+
+    createImageWrapper(listWrapper)
+    {
+        const li2 = dom.createElem('li');
+        listWrapper.appendChild(li2);
+        return li2;
+    }
+    
+    createImage(src, imageWrapper)
+    {
+        const img2 = dom.createElem('img', {src: src });
+        const a2 = dom.createElem('a', {href: src }, img2);
+        imageWrapper.appendChild(a2);
+    }        
+
+    replaceContent(cb)
     {
         debug.debug('Performing operation');
-        let root = dom.getNodeByCss('.zdjeciownik_list');
+        let root = dom.getNodeByCss('.zdjeciownik_lista');
         if (root === null){
-            root = dom.createElem('div', {'class':'.zdjeciownik_list'});
+            root = dom.createElem('div', {'class':'zdjeciownik_lista'});
             dom.getNodeByCss('body').appendChild(root);
         }
 
-        const oldWrapper = dom.getNodeByCss('.zdjeciownik_list ol');
+        const oldWrapper = dom.getNodeByCss('.zdjeciownik_lista ol');
 
         const wrapper = dom.createElem('ol');
         cb(wrapper);
@@ -303,14 +318,14 @@ class Main {
         }
         root.appendChild(wrapper);
 
-        const origin = dom.getNodeByCss('#wrapper');
-        if (origin !== null){
-            origin.parentNode.removeChild(origin);
+        const origin = dom.getNodesByCss('#wrapper, #wrapper-v-new');
+        for (let e of origin){
+            e.parentNode.removeChild(e);
         }
     }
 
 }
 
-const main = new Main();
-document.addEventListener('DOMContentLoaded', debug.wrap(main.prepare.bind(main)), false);
+let main = new Main();
+debug.wrap(main.prepare.bind(main))();
 })();
