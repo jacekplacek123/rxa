@@ -2,7 +2,7 @@
 // @name           roksahidden
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        8.10.1
+// @version        8.11.1
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -448,6 +448,7 @@ var searchListEngine = new function() {
     {
         debug.info('------------------------------------------------'); 
         this.loadCss2();
+        this.sortAnonseById();
         this.loadAnonseData();
         var isByPhoneSearch = window.location.href.match(/nr_tel=[0-9]{3,}/) !== null;
         var mode = commonUtils.getCssModeForSearch(); 
@@ -463,6 +464,33 @@ var searchListEngine = new function() {
         if (showSearchSwitchBox)
             this.createSearchSwitchBox(mode, isByPhoneSearch, withNotesOnly);
         this.mode = mode;
+    }
+    
+    this.sortAnonseById = function(){
+        let xp = dom.getNodes("//div[@id='anons_group']/a");
+        let extractIdPattern = /\/([0-9]+)$/g;
+        let itemsArr = [];
+        let itemsMap = {};
+        debug.debug('Sorting anonse by id');
+        for (let i=0; i<xp.snapshotLength; i++){
+            let elem = xp.snapshotItem(i);
+            let href = elem.getAttribute('href');
+            debug.debug('found anons {}', href);
+            extractIdPattern.lastIndex = 0;
+            let id = extractIdPattern.exec(href);
+            if (id !== null){
+                id = id[1]
+                itemsMap[id] = elem;
+                itemsArr.push(id);
+            }
+        }
+        commonUtils.sortNum(itemsArr);
+        itemsArr.reverse();
+        itemsArr.forEach(function(id){
+            let elem = itemsMap[id];
+            let par = elem.parentNode;
+            par.insertBefore(elem, par.firstChild);
+        });
     }
 
     /**
