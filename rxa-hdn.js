@@ -2,7 +2,7 @@
 // @name           roksahidden
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        8.9.2
+// @version        8.9.3
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -282,7 +282,7 @@ var favoritiesListEngine = new function(){
         }
         
         commonUtils.saveIdsToHide(myIdsToHide);
-        commonUtils.registerNoteChangeEvent(function(id, newNote){
+        commonUtils.registerNoteChangeEvent((id, newNote) => {
             var elem = idToElem[id];
             if (!elem){
                 return ;
@@ -290,7 +290,7 @@ var favoritiesListEngine = new function(){
             this.validatePhoneNo(elem, newNote);
             var textarea = dom.getNode(".//textarea[contains(@class, 'user_note_tresc')]", elem);
             textarea.value = newNote;
-        }.bind(favoritiesListEngine));
+        });
         
         // apply UI changes
         debug.info("Applying UI changes on {} elements", ids.length);
@@ -741,7 +741,7 @@ var anonsEngine = new function() {
         // Options for the observer (which mutations to observe)
         const config = { attributes: false, childList: true, subtree: false };
         // Callback function to execute when mutations are observed
-        const callback = function(mutationsList, observer) {
+        const callback = (mutationsList, observer) => {
             // Use traditional 'for loops' for IE 11
             for(let mutation of mutationsList) {
                 if (mutation.type === 'childList' && mutation.target === notatka){
@@ -752,7 +752,7 @@ var anonsEngine = new function() {
                 }
             }
             observer.takeRecords();
-        }.bind(this);
+        };
 
         // Create an observer instance linked to the callback function
         const observer = new MutationObserver(callback);
@@ -778,7 +778,7 @@ var anonsEngine = new function() {
         var exprHttp = /https?:\/\/[^ <\n\r\t(]+/g; // fucking bad expression :/
         var exprTel = /[0-9]{3}[ -][0-9]{3}[ -][0-9]{3}/g;
         var expr = /(https?:\/\/[^ <\n\r\t]+)|([0-9]{3}[ -][0-9]{3}[ -][0-9]{3})/g;
-        var processor = function(linkValue){
+        var processor = (linkValue) => {
             exprHttp.lastIndex = 0;
             if (exprHttp.exec(linkValue) !== null){
                 const className = linkValue == document.location.href ? 'roksahidden_self' : '';
@@ -789,7 +789,7 @@ var anonsEngine = new function() {
                 return this.linkifyTel(linkValue);
             }
             return linkValue;
-        }.bind(this);
+        };
         dom.traverseChildNodes(notatka, function(node){
             dom.splitNode(node, expr, processor);
         });
