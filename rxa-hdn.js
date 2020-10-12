@@ -2,7 +2,7 @@
 // @name           roksahidden
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        9.1.2
+// @version        9.1.3
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -128,6 +128,7 @@ var cssForSearch = [
     'div.roksahidden_anonse_links textarea { height:5em; width:100%; border: 1px solid #AC81AD; } ',
     'div.roxahidden_extra_group > div { clear: both; }',
     'div.roksahidden_tooltip_2 { white-space: pre; height: 197px; line-height: 110%; overflow-x: hidden; border: 2px solid #bfa7d1; padding: 4px; }',
+    'div.roksahidden_tooltip_2 a { color: black; }',
     'div.roksahidden_tooltip_wrapper { padding-top: 1px; }',
     '',
 ].join('\n');
@@ -300,7 +301,7 @@ var favoritiesListEngine = new function(){
                 const telNode = dom.getNodeByCss('.dane_anonsu_tel', elem)
                 if (telNode != null) {
                     let telElements
-                    if ((telElements = /([0-9]{3})[ -]([0-9]{3})[ -]([0-9]{3})/g .exec(telNode.innerText)) !== null){
+                    if ((telElements = /([5678][0-9]{2})[ -]([0-9]{3})[ -]([0-9]{3})/g .exec(telNode.innerText)) !== null){
                         txt2 = txt2 + '\n' + telElements.splice(1).join('-')
                     }
                 }
@@ -532,20 +533,24 @@ var searchListEngine = new function() {
         const note = commonUtils.getNote(id)
         
         const template = 
-            '<div><a><div class="random_item"><img><div class="podpis nowrap"></div></div></a>' + 
+            '<div><a><div class="random_item"><img><div class="podpis nowrap nazwa"></div><div class="podpis nowrap id"></div></div></a>' + 
             '<div class="roksahidden_tooltip_wrapper"><div class="roksahidden_tooltip_2"></div></div></div>'
         let doc = new DOMParser().parseFromString(template, 'text/html')
         dom.getNodeByCss('a', doc).setAttribute('href', '/pl/anonse/pokaz/' + id)
-        const img = dom.getNodeByCss('img', doc)
-        img.setAttribute('src', imgSrc.replace('/mini/', '/mini2/'))
+        const imgElem = dom.getNodeByCss('img', doc)
+        imgElem.setAttribute('src', imgSrc.replace('/mini/', '/mini2/'))
         const imgErrListener = function(){
-            img.removeEventListener('error', imgErrListener, false)
-            img.setAttribute('src', imgSrc)
+            imgElem.removeEventListener('error', imgErrListener, false)
+            imgElem.setAttribute('src', imgSrc)
         }
-        img.addEventListener('error', imgErrListener, false)
-        dom.getNodeByCss('.podpis', doc).innerText = title
-        // TODO: podlinkowanie linków w notatce
-        dom.getNodeByCss('.roksahidden_tooltip_2', doc).innerText = note
+        imgElem.addEventListener('error', imgErrListener, false)
+        const nazwaElem = dom.getNodeByCss('.nazwa', doc)
+        nazwaElem.innerText = title
+        nazwaElem.setAttribute('title', title)
+        dom.getNodeByCss('.id', doc).innerText = id
+        const noteElem = dom.getNodeByCss('.roksahidden_tooltip_2', doc)
+        noteElem.innerText = note
+        anonsEngine.linkifyNotes(noteElem)
         
         return doc.querySelector('body *')
     }
@@ -937,8 +942,8 @@ var anonsEngine = new function() {
             return ;
         }
         var exprHttp = /https?:\/\/[^ <\n\r\t(]+/g; // fucking bad expression :/
-        var exprTel = /[0-9]{3}[ -][0-9]{3}[ -][0-9]{3}/g;
-        var expr = /(https?:\/\/[^ <\n\r\t]+)|([0-9]{3}[ -][0-9]{3}[ -][0-9]{3})/g;
+        var exprTel = /[5678][0-9]{2}[ -][0-9]{3}[ -][0-9]{3}/g;
+        var expr = /(https?:\/\/[^ <\n\r\t]+)|([5678][0-9]{2}[ -][0-9]{3}[ -][0-9]{3})/g;
         var processor = (linkValue) => {
             exprHttp.lastIndex = 0;
             if (exprHttp.exec(linkValue) !== null){
@@ -1005,7 +1010,7 @@ var anonsEngine = new function() {
             return
         }
         let telElements
-        if ((telElements = /([0-9]{3})[ -]([0-9]{3})[ -]([0-9]{3})/g .exec(telNode.innerText)) === null){
+        if ((telElements = /([5678][0-9]{2})[ -]([0-9]{3})[ -]([0-9]{3})/g .exec(telNode.innerText)) === null){
             return
         }
         return this.mainPhoneNo = telElements.splice(1).join('-')
@@ -1090,7 +1095,7 @@ var indexEngine = new function() {
     this.indexPhoneNos = function(id, text) {
         // TODO: tu by się przydało jeszcze coś takiego, że jeżeli to jest ekstra numer telefonu, i nie ma go w notatkach,
         // to zapisujemy go osobno, żeby nam nie uciekł -> przydatne z listy ulubionych, gdy DIVy zmieniają nr jak rękawiczki
-        const expr = /[0-9]{3}-[0-9]{3}-[0-9]{3}/g
+        const expr = /[5678][0-9]{2}-[0-9]{3}-[0-9]{3}/g
         const byPhone = new Map()
         
         const textLines = text.match(/[^\n\r]+/g)
@@ -1413,7 +1418,7 @@ var commonUtils = new function(){
     }
     this.garsoFavicon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAEGSURBVDhPtVEhDIMwEJxETmInkZNYZOUktnJyEotETs4ikUgsEomsRVZW/u5a2CALYll2%2BZBP/%2B7//jnIl/hdMI7StuIc43qV202aZi55bAVdJ0oxLhdSlZrS1KYpc2sDZSUYhsAGAzyTJMPp1B2P%2BPJdaw5/C6ZJ8txmGRhdHAeeOZ9dXdPh/R56gbYIyhLlNopGvGIUvCGCjZdPv4wXoD2caG1RWwPKspzZOICHF1QVLWJuUbCAyPOZ1/d8DInHaofHwylF31lGBnhFgQNge15pwSLwwIp9HDdRxI2TBDm2Qgu2W7AREMY4rUeww5UwClda4UMQgJNjY2P4v7fYEezj3wKRJ%2B6igQJdrkgvAAAAAElFTkSuQmCC';
     this.validatePhoneNo2 = function(contextNode, noteTelNumbers, id){
-        var expr = /[0-9]{3}[ -][0-9]{3}[ -][0-9]{3}/g;
+        var expr = /[5678][0-9]{2}[ -][0-9]{3}[ -][0-9]{3}/g;
         var telNode = dom.getNode(".//span[contains(@class, 'dane_anonsu_tel')]", contextNode);
         if (telNode === null){
             return ;
@@ -1455,7 +1460,7 @@ var commonUtils = new function(){
     
     this.extractPhoneNumbers = function(txt, arr){
         arr = arr || new Array();
-        var expr = /(?:^|[^0-9])([0-9]{3}[ -][0-9]{3}[ -][0-9]{3})/g;
+        var expr = /(?:^|[^0-9])([5678][0-9]{2}[ -][0-9]{3}[ -][0-9]{3})/g;
         var start = 0;
         var match;
         if ((match = expr.exec(txt)) !== null){
@@ -1472,7 +1477,7 @@ var commonUtils = new function(){
         if (telNode === null){
             return ;
         }
-        var expr = /([0-9]{3})[ -]([0-9]{3})[ -]([0-9]{3})/g;
+        var expr = /([5678][0-9]{2})[ -]([0-9]{3})[ -]([0-9]{3})/g;
         var telElements;
         if ((telElements = expr.exec(telNode.textContent)) === null){
             debug.info('Can not find phone number, id: {}', id);
