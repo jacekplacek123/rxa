@@ -2,7 +2,7 @@
 // @name           roksahidden
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        8.8.1
+// @version        8.9.1
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -32,8 +32,6 @@
 'use strict';
 
 // TODO:
-// Google na id anonsu
-// Garsoniera na id anonsu
 // Nawet jeżeli ogłoszenie wyłączone, to wyświetlenie notatek + ew. edycja
 // Zestawienie danych w ogłoszeniu -> tel, wiek, wzrost, itp
 // Zestawienie danych w wynikach wyszukiwania -> tel, wiek, wzrost, itd
@@ -60,7 +58,7 @@ var tylkoWybraneMiasta = [
 //-----------------------------------------------------------
 
 // 0 - bardzo mało, 1 - trochę, 2 - dużo, 3 - bardzo dużo
-var doDebug = 1;
+var doDebug = 0;
 // flaga, czy w wynikach wyszukiwania pokazywać notatki z ogłoszeń
 var showNotesInSearch = true;
 // czy linki w notatkach ogłoszeń mają być klikalne?
@@ -69,7 +67,8 @@ var linkifyNotes = true;
 // var linkifyNotesTel = false; // nie, 
 // var linkifyNotesTel = ['roksa', 'garso', 'google']; // wstawia dodatkowe trzy odnośniki,
 // var linkifyNotesTel = 'garso'; // zmiania na bezpośredni link do garso
-var linkifyNotesTel = ['roksa', 'google', 'google_id', 'garso']; 
+var linkifyNotesTel = ['roksa', 'google', 'garso'];
+var linkifyAnonsTel = ['roksa', 'google', 'google_id', 'garso_plus'];
 // czy na formatce wyszukiwania pokazywać przełącznik ukrywania anonsów?
 var showSearchSwitchBox = true;
 
@@ -87,50 +86,51 @@ var isUserJs = false;
 //-----------------------------------------------------------
 
 // CSSy do zaaplikowania
-var cssForFavorities = 
-    'a.roksahiddencss {cursor:pointer;} ' +
-    'a.roksahiddencss div {background-color: #4D0465; color: #DECEE0;} ' +
-    'a.roksahiddencss div:hover {background-color: #3E0351; color: white;} ' +
-    'a.roksahidden_active div, a.roksahidden_active div:hover {background-color: #FA8C0B; color: white;} ' +
-    '.roksahidden_hide {display: none !important;} ' +
-    '.roksahidden_dim div, ' +
-    '.roksahidden_dim textarea, ' +
-    '.roksahidden_dim.favourites_box a {color:#999;} ' +
-    '.roksahidden_dim img {opacity:0.5; filter:alpha(opacity=50);} ' +
-    '.roksahidden_dim.favourites_box .button_red { background: #999; border-color: black; } ' +
-    'a.garso4gm img {width: 16px; height: 16px; padding: 0 5px; vertical-align: baseline; } ' +
-    '' +
-    '';
+var cssForFavorities = [
+    'a.roksahiddencss {cursor:pointer;} ',
+    'a.roksahiddencss div {background-color: #4D0465; color: #DECEE0;} ',
+    'a.roksahiddencss div:hover {background-color: #3E0351; color: white;} ',
+    'a.roksahidden_active div, a.roksahidden_active div:hover {background-color: #FA8C0B; color: white;} ',
+    '.roksahidden_hide {display: none !important;} ',
+    '.roksahidden_dim div, ',
+    '.roksahidden_dim textarea, ',
+    '.roksahidden_dim.favourites_box a {color:#999;} ',
+    '.roksahidden_dim img {opacity:0.5; filter:alpha(opacity=50);} ',
+    '.roksahidden_dim.favourites_box .button_red { background: #999; border-color: black; } ',
+    'a.garso4gm img {width: 16px; height: 16px; padding: 0 5px; vertical-align: baseline; } ',
+    '',
+    ].join('\n');
 
-var cssForSearch =
-    '.roksahidden_search_switchbox {width: 95%; margin: 15px auto;} ' +
-    'a.roksahiddencss {cursor:pointer;} ' +
-    'a.roksahiddencss div {background-color: #4D0465; color: #DECEE0;} ' +
-    'a.roksahiddencss div:hover {background-color: #3E0351; color: white;} ' +
-    'a.roksahidden_active div, a.roksahidden_active div:hover {background-color: #FA8C0B; color: white;} ' +
-    '.roksahidden_search_dim img {opacity:0.5; filter:alpha(opacity=50);} ' +
-    '.roksahidden_search_dim .random_item {color:#C5ACD9;} ' +
-    '.roksahidden_search_hide {display: none !important;} ' +
+var cssForSearch = [
+    '.roksahidden_search_switchbox {width: 95%; margin: 15px auto;} ',
+    'a.roksahiddencss {cursor:pointer;} ',
+    'a.roksahiddencss div {background-color: #4D0465; color: #DECEE0;} ',
+    'a.roksahiddencss div:hover {background-color: #3E0351; color: white;} ',
+    'a.roksahidden_active div, a.roksahidden_active div:hover {background-color: #FA8C0B; color: white;} ',
+    '.roksahidden_search_dim img {opacity:0.5; filter:alpha(opacity=50);} ',
+    '.roksahidden_search_dim .random_item {color:#C5ACD9;} ',
+    '.roksahidden_search_hide {display: none !important;} ',
     'div.roksahidden_anonse_links { padding-right: 5px; padding-left: 5px; } '+
-    'div.roksahidden_anonse_links span { color: #4C0365; font-size: 16px; line-height: normal; } '+
-    'div.roksahidden_anonse_links textarea { height:5em; width:100%; border: 1px solid #AC81AD; } ' +
-    '' +
-    '';
+    'div.roksahidden_anonse_links span { color: #4C0365; font-size: 16px; line-height: normal; } ',
+    'div.roksahidden_anonse_links textarea { height:5em; width:100%; border: 1px solid #AC81AD; } ',
+    '',
+    ].join('\n');
     
-var cssForNotesInSearch = 
-    '.roksahidden_tooltip {white-space: pre; max-height: 15em; max-width: 600px; font-size: 1em; line-height: 110%; overflow: hidden; border: 1px dotted #CE4AE6; display: block !important; margin-top: 3px; padding: 1px; padding-right: 2px; }' + 
-    '.anonshint-tooltip.ui-tooltip {max-width: 620px !important; }' +
-    '';
+var cssForNotesInSearch = [
+    '.roksahidden_tooltip {white-space: pre; max-height: 15em; max-width: 600px; font-size: 1em; line-height: 110%; overflow: hidden; border: 1px dotted #CE4AE6; display: block !important; margin-top: 3px; padding: 1px; padding-right: 2px; }',
+    '.anonshint-tooltip.ui-tooltip {max-width: 620px !important; }',
+    ''
+    ].join('\n');
 
-var cssForAnons =
-    'div#notatka_content a {color: black !important;} ' +
-    'div#notatka_content a.roksahidden_clicked { background-color: antiquewhite; }' +
-    'div#notatka_content a.roksahidden_self { background-color: mistyrose !important;}' +
-    '#dane_anonsu_wrap a.garso4gm { float: right; position: relative; /*top: 1.5em;*/ } ' +
-    '#dane_anonsu_wrap a.garso4gm_garso {margin-right: 2em;} ' +
-    '#dane_anonsu_wrap *.garso4gm img {width: 16px; height: 16px;} ' +
-    '' +
-    '';
+var cssForAnons = [
+    'div#notatka_content a {color: black !important;} ',
+    'div#notatka_content a.roksahidden_clicked { background-color: antiquewhite; }',
+    'div#notatka_content a.roksahidden_self { background-color: mistyrose !important;}',
+    '#dane_anonsu_wrap a.garso4gm { float: right; position: relative; /*top: 1.5em;*/ } ',
+    '#dane_anonsu_wrap span.dane_anonsu_tel a:first-of-type {margin-right: 2em;} ',
+    '#dane_anonsu_wrap *.garso4gm img {width: 16px; height: 16px;} ',
+    ''
+    ].join('\n');
 
 //-----------------------------------------------------------
 
@@ -164,6 +164,7 @@ var favoritiesListEngine = new function(){
         });
         commonUtils.setCssMode(mode);
         debug.info('css class switch done, total {} elements in switch list', this.myElements.length);
+        return false;
     }
 
     this.createSwitcher2 = function()
@@ -180,23 +181,22 @@ var favoritiesListEngine = new function(){
         elem = dom.createElem('span', { 'style' : 'padding-left: 1em;'} );
         xp.appendChild(elem);
 
-        var that = this;
         elem = dom.createElem('a', { 'class':'roksahiddencss' } );
-        elem.addEventListener('click', function(){that.switchClass(2); return false;});
+        elem.addEventListener('click', this.switchClass.bind(this, 2));
         xp.appendChild(elem);
         elem2 = dom.createElem('div', { 'class':'top_path2' }, 'Pokaż wszystkie');
         elem.appendChild(elem2);
         this.mySwitchers.unshift(elem);
 
         elem = dom.createElem('a', { 'class':'roksahiddencss' } );
-        elem.addEventListener('click', function(){that.switchClass(1); return false;});
+        elem.addEventListener('click', this.switchClass.bind(this, 1));
         xp.appendChild(elem);
         elem2 = dom.createElem('div', { 'class':'top_path2' }, 'Wyszarz niechciane');
         elem.appendChild(elem2);
         this.mySwitchers.unshift(elem);
 
         elem = dom.createElem('a', { 'class':'roksahiddencss' } );
-        elem.addEventListener('click', function(){that.switchClass(0); return false;});
+        elem.addEventListener('click', this.switchClass.bind(this, 0));
         xp.appendChild(elem);
         var elem2 = dom.createElem('div', { 'class':'top_path2' }, 'Ukryj niechciane');
         elem.appendChild(elem2);
@@ -322,8 +322,7 @@ var favoritiesListEngine = new function(){
         if (telNode === null){
             return ;
         }
-        var providers = ['roksa', 'google', 'google_id', 'garso'];
-        commonUtils.processPhoneNumber(telNode, providers, id);
+        commonUtils.processPhoneNumber(telNode, linkifyAnonsTel, id);
     }
     
     this.processFavoritiesListPage = function() {
@@ -543,6 +542,7 @@ var searchListEngine = new function() {
         commonUtils.setCssModeForSearch(mode); 
         commonUtils.setWithNotesOnly(withNotesOnly);
         this.mode = mode;
+        return false;
     }
     this.switchWithNotesOnly = function(){
         var mode = commonUtils.getCssModeForSearch(); 
@@ -557,6 +557,7 @@ var searchListEngine = new function() {
             dom.applyTargetClass(e2, idx === mode ? 'roksahidden_active' : '');
         });
         commonUtils.setWithNotesOnly(newWithNotesOnly);
+        return false;
     }
     /** Zmienia link relatywny na absolutny */
     this.resolveRelative = function(link){
@@ -618,18 +619,17 @@ var searchListEngine = new function() {
         var xp = dom.createElem('div', {'class':'roksahidden_search_switchbox'});
 
         // TODO: uwspólnić te trzy pierwsze elementy
-        var that = this;
 
         var elem = null;
         elem = dom.createElem('a', { 'class':'roksahiddencss' } );
-        elem.addEventListener('click', function(){that.switchClass(2); return false;});
+        elem.addEventListener('click', this.switchClass.bind(this, 2));
         xp.appendChild(elem);
         elem2 = dom.createElem('div', { 'class':'top_path2' }, 'Pokaż wszystkie');
         elem.appendChild(elem2);
         this.mySwitchers.unshift(elem);
 
         elem = dom.createElem('a', { 'class':'roksahiddencss' } );
-        elem.addEventListener('click', function(){that.switchClass(1); return false;});
+        elem.addEventListener('click', this.switchClass.bind(this, 1));
         xp.appendChild(elem);
         elem2 = dom.createElem('div', { 'class':'top_path2' }, 'Wyszarz niechciane');
         elem.appendChild(elem2);
@@ -637,7 +637,7 @@ var searchListEngine = new function() {
 
         if (!limited){
             elem = dom.createElem('a', { 'class':'roksahiddencss' } );
-            elem.addEventListener('click', function(){that.switchClass(0); return false;});
+            elem.addEventListener('click', this.switchClass.bind(this, 0));
             xp.appendChild(elem);
             var elem2 = dom.createElem('div', { 'class':'top_path2' }, 'Ukryj niechciane');
             elem.appendChild(elem2);
@@ -648,7 +648,7 @@ var searchListEngine = new function() {
 
         if (!limited){
             elem = dom.createElem('a', { 'class':'roksahiddencss' } );
-            elem.addEventListener('click', function(){that.switchClass(3); return false;});
+            elem.addEventListener('click', this.switchClass.bind(this, 3));
             xp.appendChild(elem);
             elem2 = dom.createElem('div', { 'class':'top_path2' }, 'Tylko bez notatek');
             elem.appendChild(elem2);
@@ -660,7 +660,7 @@ var searchListEngine = new function() {
             if (onlyWithNotes){
                 elem.className = elem.className + ' roksahidden_active';
             }
-            elem.addEventListener('click', function(){that.switchWithNotesOnly(); return false;});
+            elem.addEventListener('click', this.switchWithNotesOnly.bind(this));
             xp.appendChild(elem);
             elem2 = dom.createElem('div', { 'class':'top_path2' }, 'Tylko z notatkami');
             elem.appendChild(elem2);
@@ -728,20 +728,19 @@ var anonsEngine = new function() {
     this.hookNotatkaChanged = function(notatka){
         // Options for the observer (which mutations to observe)
         const config = { attributes: false, childList: true, subtree: false };
-        const that = this;
         // Callback function to execute when mutations are observed
         const callback = function(mutationsList, observer) {
             // Use traditional 'for loops' for IE 11
             for(let mutation of mutationsList) {
                 if (mutation.type === 'childList' && mutation.target === notatka){
-                    that.updateStoredNote(notatka);
-                    that.validatePhoneNo(notatka);
-                    that.linkifyNotes(notatka); // todo: obsługa innych funkcjonalności
+                    this.updateStoredNote(notatka);
+                    this.validatePhoneNo(notatka);
+                    this.linkifyNotes(notatka); // todo: obsługa innych funkcjonalności
                     break;
                 }
             }
             observer.takeRecords();
-        };
+        }.bind(this);
 
         // Create an observer instance linked to the callback function
         const observer = new MutationObserver(callback);
@@ -764,23 +763,22 @@ var anonsEngine = new function() {
         if (!linkifyNotes){
             return ;
         }
-        var that = this;
         var exprHttp = /https?:\/\/[^ <\n\r\t(]+/g; // fucking bad expression :/
         var exprTel = /[0-9]{3}[ -][0-9]{3}[ -][0-9]{3}/g;
         var expr = /(https?:\/\/[^ <\n\r\t]+)|([0-9]{3}[ -][0-9]{3}[ -][0-9]{3})/g;
-        dom.traverseChildNodes(notatka, function(node){
-            var processor = function(linkValue){
-                exprHttp.lastIndex = 0;
-                if (exprHttp.exec(linkValue) !== null){
-                    const className = linkValue == document.location.href ? 'roksahidden_self' : '';
-                    return dom.createElem('a', {'href':linkValue, 'target':'_blank', 'class':className},linkValue);
-                }
-                exprTel.lastIndex = 0;
-                if (exprTel.exec(linkValue) !== null){
-                    return that.linkifyTel(linkValue);
-                }
-                return linkValue;
+        var processor = function(linkValue){
+            exprHttp.lastIndex = 0;
+            if (exprHttp.exec(linkValue) !== null){
+                const className = linkValue == document.location.href ? 'roksahidden_self' : '';
+                return dom.createElem('a', {'href':linkValue, 'target':'_blank', 'class':className},linkValue);
             }
+            exprTel.lastIndex = 0;
+            if (exprTel.exec(linkValue) !== null){
+                return this.linkifyTel(linkValue);
+            }
+            return linkValue;
+        }.bind(this);
+        dom.traverseChildNodes(notatka, function(node){
             dom.splitNode(node, expr, processor);
         });
     }
@@ -819,7 +817,8 @@ var anonsEngine = new function() {
             debug.warn('Can not find phone number node');
             return ;
         }
-        var providers = ['garso', 'google', 'google_id', 'roksa'];
+        let providers = linkifyAnonsTel.slice(0);
+        providers.reverse(); 
         commonUtils.processPhoneNumber(telNode, providers, this.extractId());
     }
     
@@ -985,10 +984,11 @@ var commonUtils = new function(){
             debug.debug('Note for id {} has been deleted', id);
             return ;
         }
-        note = LZString.compressToUTF16(note.replace(/[\r\n]+/g,'\n'));
-        var oldNote = this.storage.getItem('an_' + id);
-        if (oldNote === null || oldNote !== note){
-            this.storage.setItem('an_' + id, note);
+        note = note.replace(/[\r\n]+/g,'\n');
+        const oldNote = this.storage.getItem('an_' + id);
+        if (oldNote === null || note !== LZString.decompressFromUTF16(oldNote)){
+            const noteCompressed = LZString.compressToUTF16(note);
+            this.storage.setItem('an_' + id, noteCompressed);
             debug.debug('Note for id {} has been updated', id);
         }
     }
@@ -1060,13 +1060,36 @@ var commonUtils = new function(){
     }
     this.getLinkCfgFor_garso = function(tel){
         var telGarso = tel.replace(/[ -]/g, '-');
-        var url = ' http://www.garsoniera.com.pl/forum/index.php?app=core&module=search' + 
+        var url = 'http://www.garsoniera.com.pl/forum/index.php?app=core&module=search' + 
             '&do=quick_search&search_filter_app%5Bforums%5D=1&addon=2&search_term=%22' + telGarso + '%22';
-        var favicon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAEGSURBVDhPtVEhDIMwEJxETmInkZNYZOUktnJyEotETs4ikUgsEomsRVZW/u5a2CALYll2%2BZBP/%2B7//jnIl/hdMI7StuIc43qV202aZi55bAVdJ0oxLhdSlZrS1KYpc2sDZSUYhsAGAzyTJMPp1B2P%2BPJdaw5/C6ZJ8txmGRhdHAeeOZ9dXdPh/R56gbYIyhLlNopGvGIUvCGCjZdPv4wXoD2caG1RWwPKspzZOICHF1QVLWJuUbCAyPOZ1/d8DInHaofHwylF31lGBnhFgQNge15pwSLwwIp9HDdRxI2TBDm2Qgu2W7AREMY4rUeww5UwClda4UMQgJNjY2P4v7fYEezj3wKRJ%2B6igQJdrkgvAAAAAElFTkSuQmCC';
+        ;
         var hint = 'szukaj \'' + telGarso + '\' na garsonierze';
-        return {'url':url,'favicon':favicon,'hint':hint};
+        return {'url':url,'favicon':this.garsoFavicon,'hint':hint};
     }
-    
+    this.getLinkCfgFor_garso_plus = function(tel,id){
+        if (typeof id === 'undefined'){
+            return null;
+        }
+        var telGarso = tel.replace(/[ -]/g, '-');
+//        http://www.garsoniera.com.pl/forum/index.php?app=core&module=search&section=search&do=search&fromsearch=1
+//        search_term
+//        search_app=forums
+//        andor_type=or
+//        search_content=both
+//        search_app_filters[forums][noPreview]=1
+//        search_app_filters[forums][sortKey]=date
+//        search_app_filters[forums][sortDir]=0
+        var url = 'http://www.garsoniera.com.pl/forum/index.php?app=core&module=search&section=search&do=search&fromsearch=1' + 
+            '&search_app=forums&andor_type=or&search_content=both' + 
+            '&search_app_filters%5Bforums%5D%5BnoPreview%5D=1' + 
+            '&search_app_filters%5Bforums%5D%5BsortKey%5D=date' + 
+            '&search_app_filters%5Bforums%5D%5BsortDir%5D=0' + 
+            '&search_term=%22' + telGarso + '%22+' + id;
+        ;
+        var hint = 'szukaj \'' + telGarso + '\' ' + id + ' na garsonierze';
+        return {'url':url,'favicon':this.garsoFavicon,'hint':hint};
+    }
+    this.garsoFavicon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAEGSURBVDhPtVEhDIMwEJxETmInkZNYZOUktnJyEotETs4ikUgsEomsRVZW/u5a2CALYll2%2BZBP/%2B7//jnIl/hdMI7StuIc43qV202aZi55bAVdJ0oxLhdSlZrS1KYpc2sDZSUYhsAGAzyTJMPp1B2P%2BPJdaw5/C6ZJ8txmGRhdHAeeOZ9dXdPh/R56gbYIyhLlNopGvGIUvCGCjZdPv4wXoD2caG1RWwPKspzZOICHF1QVLWJuUbCAyPOZ1/d8DInHaofHwylF31lGBnhFgQNge15pwSLwwIp9HDdRxI2TBDm2Qgu2W7AREMY4rUeww5UwClda4UMQgJNjY2P4v7fYEezj3wKRJ%2B6igQJdrkgvAAAAAElFTkSuQmCC';
     this.validatePhoneNo2 = function(contextNode, noteTelNumbers, id){
         var expr = /[0-9]{3}[ -][0-9]{3}[ -][0-9]{3}/g;
         var telNode = dom.getNode(".//span[contains(@class, 'dane_anonsu_tel')]", contextNode);
