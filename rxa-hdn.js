@@ -2,7 +2,7 @@
 // @name           roksahidden
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        8.9.1
+// @version        8.9.2
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -36,7 +36,6 @@
 // Zestawienie danych w ogłoszeniu -> tel, wiek, wzrost, itp
 // Zestawienie danych w wynikach wyszukiwania -> tel, wiek, wzrost, itd
 // Wyświetlanie ile ogłoszeń jest na stronie
-// jakoś wyszarzyć link, który prowadzi do strony, na której już jesteśmy
 // jeżeli jesteśmy na liście wszystkich anonsów, to tryb pokaż wsztstkie/wyszarz
 
 // ukrywa ogłoszenia, gdy znajdzie jedną z poniższych fraz w prywatnym komentarzu
@@ -58,9 +57,11 @@ var tylkoWybraneMiasta = [
 //-----------------------------------------------------------
 
 // 0 - bardzo mało, 1 - trochę, 2 - dużo, 3 - bardzo dużo
-var doDebug = 0;
+var doDebug = 1;
+
 // flaga, czy w wynikach wyszukiwania pokazywać notatki z ogłoszeń
 var showNotesInSearch = true;
+
 // czy linki w notatkach ogłoszeń mają być klikalne?
 var linkifyNotes = true;
 // czy nr telefonów w ogłoszeniach mają być linkami? działa tylko, jeżeli linkifyNotes = true
@@ -68,12 +69,20 @@ var linkifyNotes = true;
 // var linkifyNotesTel = ['roksa', 'garso', 'google']; // wstawia dodatkowe trzy odnośniki,
 // var linkifyNotesTel = 'garso'; // zmiania na bezpośredni link do garso
 var linkifyNotesTel = ['roksa', 'google', 'garso'];
+
+// czy dodać linki pod numerem telefonu
+// dodatkowe providery:
+// - google_id - google na id anonsu
+// - garso_plus - garsoniera na numer telefonu lub id anonsu
 var linkifyAnonsTel = ['roksa', 'google', 'google_id', 'garso_plus'];
+
+
 // czy na formatce wyszukiwania pokazywać przełącznik ukrywania anonsów?
 var showSearchSwitchBox = true;
 
 // czy wyświetlać informację w anonsie, że nr telefonu uległ zmianie (brak zapisanego bieżącego nr w notatkach)?
 var validatePhoneNoInAnons = true;
+
 // czy wyświetlać informację na liście ulubionych, że nr telefonu uległ zmianie?
 var validatePhoneNoInFavorities = true;
 
@@ -98,8 +107,9 @@ var cssForFavorities = [
     '.roksahidden_dim img {opacity:0.5; filter:alpha(opacity=50);} ',
     '.roksahidden_dim.favourites_box .button_red { background: #999; border-color: black; } ',
     'a.garso4gm img {width: 16px; height: 16px; padding: 0 5px; vertical-align: baseline; } ',
+    '.favourites_content_list .roksahidden_wrapper { margin-left: 36px; margin-top: 5px; }',
     '',
-    ].join('\n');
+].join('\n');
 
 var cssForSearch = [
     '.roksahidden_search_switchbox {width: 95%; margin: 15px auto;} ',
@@ -114,13 +124,13 @@ var cssForSearch = [
     'div.roksahidden_anonse_links span { color: #4C0365; font-size: 16px; line-height: normal; } ',
     'div.roksahidden_anonse_links textarea { height:5em; width:100%; border: 1px solid #AC81AD; } ',
     '',
-    ].join('\n');
+].join('\n');
     
 var cssForNotesInSearch = [
     '.roksahidden_tooltip {white-space: pre; max-height: 15em; max-width: 600px; font-size: 1em; line-height: 110%; overflow: hidden; border: 1px dotted #CE4AE6; display: block !important; margin-top: 3px; padding: 1px; padding-right: 2px; }',
     '.anonshint-tooltip.ui-tooltip {max-width: 620px !important; }',
     ''
-    ].join('\n');
+].join('\n');
 
 var cssForAnons = [
     'div#notatka_content a {color: black !important;} ',
@@ -130,7 +140,7 @@ var cssForAnons = [
     '#dane_anonsu_wrap span.dane_anonsu_tel a:first-of-type {margin-right: 2em;} ',
     '#dane_anonsu_wrap *.garso4gm img {width: 16px; height: 16px;} ',
     ''
-    ].join('\n');
+].join('\n');
 
 //-----------------------------------------------------------
 
@@ -322,7 +332,9 @@ var favoritiesListEngine = new function(){
         if (telNode === null){
             return ;
         }
-        commonUtils.processPhoneNumber(telNode, linkifyAnonsTel, id);
+        const wrapper = dom.createElem('div', {'class':'roksahidden_wrapper'});
+        telNode.parentNode.insertBefore(wrapper, telNode.nextSibling);
+        commonUtils.processPhoneNumber(telNode, linkifyAnonsTel, id, wrapper);
     }
     
     this.processFavoritiesListPage = function() {
@@ -1145,7 +1157,7 @@ var commonUtils = new function(){
         return arr;
     }    
 
-    this.processPhoneNumber = function(telNode, providers, id)
+    this.processPhoneNumber = function(telNode, providers, id, wrapper)
     {
         if (telNode === null){
             return ;
@@ -1162,7 +1174,7 @@ var commonUtils = new function(){
             if (cfg != null){
                 var node = dom.createElem('a', {'href':cfg.url, 'title':cfg.hint, 'target':'_blank', 'class':'garso4gm garso4gm_'+providers[i]});
                 node.appendChild(dom.createElem('img', {'src':cfg.favicon}));
-                telNode.appendChild(node);
+                (wrapper || telNode).appendChild(node);
             }
         }
         dom.traverseChildNodes(telNode, function(node){
@@ -1179,25 +1191,25 @@ var commonUtils = new function(){
 // ----------------------------------- TOOLS -----------------------------------
 
 var debug = new function() {
-    this.isInfoEnabled = function() { return doDebug > 0; }
-    this.isDebugEnabled = function() { return doDebug > 1; }
-    this.isTraceEnabled = function() { return doDebug > 2; }
-    this.warn = function(message) {
+    this.isInfoEnabled = () => doDebug > 0;
+    this.isDebugEnabled = () => doDebug > 1;
+    this.isTraceEnabled = () => doDebug > 2;
+    this.warn = function() {
         this.renderMessage('W', arguments);
     }
-    this.info = function(message) {
+    this.info = function() {
         if (doDebug > 0)
             this.renderMessage('I', arguments);
     }
-    this.debug = function(message) {
+    this.debug = function() {
         if (doDebug > 1)
             this.renderMessage('D', arguments);
     }
-    this.trace = function(message) {
+    this.trace = function() {
         if (doDebug > 2)
             this.renderMessage('T', arguments);
     }
-    this.always = function(message) {
+    this.always = function() {
         this.renderMessage('A', arguments);
     }
     this.renderMessage = function(level, args) {
