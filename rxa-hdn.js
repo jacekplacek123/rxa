@@ -2,7 +2,7 @@
 // @name           roksahidden_zwei
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        10.1.1
+// @version        10.1.2
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -57,7 +57,7 @@ var tylkoWybraneMiasta = [
 //-----------------------------------------------------------
 
 // 0 - bardzo mało, 1 - trochę, 2 - dużo, 3 - bardzo dużo
-var doDebug = 2;
+var doDebug = 1;
 
 // flaga, czy w wynikach wyszukiwania pokazywać notatki z ogłoszeń
 var showNotesInSearch = true;
@@ -222,7 +222,7 @@ var favoritiesListEngine = new function(){
         elem.className = elem.className + ' roksahidden_active';
     }
 
-    this.processFavorities = async function(){
+    this.processFavorities = function(){
         favoritiesEngine.init();
 
         var xp = dom.getNodes("//div[@id='user_content']/div[contains(@class, 'user_anonse_mini_cont')]/div[contains(@id, 'an_nr_')]");
@@ -259,7 +259,6 @@ var favoritiesListEngine = new function(){
             favoritiesEngine.isAnonsCityOkImpl(city, itemResult);
             if (form !== null){
                 txt = dom.getElemText(".//textarea[contains(@class, 'user_note_tresc')]", form);
-                commonUtils.saveNote(id, txt);
                 favoritiesEngine.isNotatkaTextOkImpl(txt, itemResult);
                 var submitListener = new function(){
                     this.id = id;
@@ -268,8 +267,8 @@ var favoritiesListEngine = new function(){
                     this.elem = elem;
                     this.handleEvent = async function(evt){
                         var txt2 = dom.getElemText(".//textarea[contains(@class, 'user_note_tresc')]", this.form);
-                        await favoritiesEngine.updateIdToHide(this.id, this.city, txt2);
-                        await commonUtils.saveNote(this.id, txt2);
+                        favoritiesEngine.updateIdToHide(this.id, this.city, txt2); // async
+                        commonUtils.saveNote(this.id, txt2); // async
                         favoritiesListEngine.validatePhoneNo(this.elem, txt2);
                     }
                 };
@@ -308,7 +307,8 @@ var favoritiesListEngine = new function(){
                     }
                 }
 
-                await indexEngine.indexPhoneNos(id, txt2, cache, (oldCache, newCache) => {
+                // async
+                indexEngine.indexPhoneNos(id, txt2, cache, (oldCache, newCache) => {
                     if (typeof oldCache.thumb === 'string' || typeof oldCache.thumb === 'undefined') {
                         // stary cache starego typu, lub brak informacji
                         return newCache
@@ -335,7 +335,7 @@ var favoritiesListEngine = new function(){
             }
         }
 
-        await commonUtils.saveIdsToHide(myIdsToHide);
+        commonUtils.saveIdsToHide(myIdsToHide); // async
         commonUtils.registerNoteChangeEvent((id, newNote) => {
             var elem = idToElem.get(id);
             if (!elem){
@@ -369,6 +369,7 @@ var favoritiesListEngine = new function(){
             var txt = idToNotatka.get(id);
             if (typeof txt === 'string'){
                 this.validatePhoneNo(elem, txt, id);
+                commonUtils.saveNote(id, txt); // async
             }
         }
 
@@ -418,7 +419,7 @@ var favoritiesListEngine = new function(){
     this.processFavoritiesListPage = async function() {
         dom.loadCss(cssForFavorities);
         debug.info('roksa process favorities start');
-        await this.processFavorities();
+        this.processFavorities();
         debug.info('roksa loading favorities ui');
         this.createSwitcher2();
         debug.info('roksa process favorities end');
@@ -498,35 +499,37 @@ var favoritiesEngine = new function(){
 
 var searchListEngine = new function() {
     this.mode = 2;
+    this.isByPhoneSearch = false
+    this.withNotesOnly = false
     this.processSearchPage = async function()
     {
         debug.info('------------------------------------------------');
         this.loadCss2();
         this.sortAnonseById();
-        await this.loadAnonseData();
-        var isByPhoneSearch = window.location.href.match(/nr_tel=[0-9]{3,}/) !== null;
+        this.isByPhoneSearch = window.location.href.match(/nr_tel=[0-9]{3,}/) !== null;
         var mode = commonUtils.getCssModeForSearch();
-        if (isByPhoneSearch && (mode === 0 || mode >= 3))
+        if (this.isByPhoneSearch && (mode === 0 || mode >= 3))
             mode = 1;
-        var withNotesOnly = !isByPhoneSearch && commonUtils.getWithNotesOnly();
-        if (withNotesOnly && mode === 3){
+        this.withNotesOnly = !this.isByPhoneSearch && commonUtils.getWithNotesOnly();
+        if (this.withNotesOnly && mode === 3){
             mode = commonUtils.getPrevCssMode();
         }
-        await this.processSearchResults(mode, withNotesOnly);
-        if (isByPhoneSearch && this.allAnonseUrls.length > 1)
-            this.addParsedLinks();
-        if (showSearchSwitchBox)
-            this.createSearchSwitchBox(mode, isByPhoneSearch, withNotesOnly);
         this.mode = mode;
+        this.loadAnonseData();
+        await this.processSearchResults(mode, this.withNotesOnly);
+        if (showSearchSwitchBox)
+            this.createSearchSwitchBox(mode, this.isByPhoneSearch, this.withNotesOnly);
+        if (this.isByPhoneSearch && this.allAnonseUrls.length > 1)
+            this.addParsedLinks();
 
-        if (enableExtendedSearchByPhone && isByPhoneSearch) {
+        if (enableExtendedSearchByPhone && this.isByPhoneSearch) {
             await this.loadExtendedSearchData();
         }
     }
 
     this.loadExtendedSearchData = async function() {
         const telNo = window.location.href.match(/nr_tel=([0-9]{3})[-+]?([0-9]{3})[-+]?([0-9]{3})/).slice(1).join('-')
-        const anonse = indexEngine.getByPhoneNo(telNo)
+        const anonse = await indexEngine.getAnonsDataByPhoneNo(telNo)
         if (anonse === null || anonse.length === 0) {
             return
         }
@@ -534,14 +537,13 @@ var searchListEngine = new function() {
         for (const anons of anonse) {
             anonseMap.set(anons.id, anons)
         }
-        for (const id of Object.keys(this.idToElem)) {
+        for (const id of this.idToElem.keys()) {
             anonseMap.delete(id)
         }
-        const cnt = Object.keys(anonseMap).length
-        if (cnt === 0) {
+        if (anonseMap.size === 0) {
             return
         }
-        debug.info('Found extra {} ids for tel no {}', cnt, telNo)
+        debug.info('Found extra {} ids for tel no {}', anonseMap.size, telNo)
 
         const header = dom.createElem('h2', {}, 'Pozostałe ogłoszenia dla numeru ' + telNo)
         const oldGroup = dom.getNodeByCss('div.search_result') || dom.getNodeByCss('.main_error_text')
@@ -558,7 +560,7 @@ var searchListEngine = new function() {
 
     this.createItemFromId = async function(id, cache) {
         const title = cache.title
-        const imgSrc = cache.thumb[cache.thumbIdx]
+        const imgSrc = cache.thumb[cache.thumbIdx] || cache.thumb
         const note = await commonUtils.getNote(id)
 
         const template =
@@ -621,14 +623,15 @@ var searchListEngine = new function() {
      */
     this.processSearchResults = async function(mode, withNotesOnly) {
         debug.info('process search, mode: {}, withNotesOnly: {}', mode, withNotesOnly);
-        var idsToHide = await commonUtils.getIdsToHide() || {};
-        var allIds = this.idToElem.keys();
+        const idsToHide = await commonUtils.getIdsToHide() || {};
+        const allIds = this.idToElem.keys();
         debug.info('search filter, start: {}', this.idToElem.size);
-        var count = 0;
+        let count = 0;
+        const withNotesCache = new Set()
         for (const id of allIds) {
             const elem = this.idToElem.get(id);
             debug.debug('processing anons id {}', id);
-            const cssClass = await this.getTargetCssClass(mode, id, idsToHide, withNotesOnly);
+            const cssClass = await this.getTargetCssClass(mode, id, idsToHide, withNotesOnly, withNotesCache);
             dom.applyTargetClass(elem, cssClass);
             if (cssClass){
                 count++;
@@ -639,7 +642,7 @@ var searchListEngine = new function() {
     }
     this.idToElem = null;
 
-    this.loadAnonseData = async function(){
+    this.loadAnonseData = function(){
         // TODO: informacja o tym, czy jakieś ogłoszenia zostały wycięte przez filtr "ukryte ogłoszenia" roksy
         var xp = dom.getNodes("//div[@id='anons_group']/a");
         debug.info('search list, start: {}', xp.snapshotLength);
@@ -659,7 +662,7 @@ var searchListEngine = new function() {
                 this.idToElem.set(id, elem);
                 idToHref[id] = href;
                 allIds.push(id);
-                await this.updateNotes(elem, id);
+                this.updateNotes(elem, id); // asynch
             } else {
                 debug.warn('Can not extract id from href: {}', href);
             }
@@ -677,33 +680,44 @@ var searchListEngine = new function() {
         if (elem){
             debug.debug('Updating note id {} callback', id);
             if (showNotesInSearch){
-                await this.updateNotes(elem, id, newNote);
+                this.updateNotes(elem, id, newNote);
             }
-            var withNotesOnly = commonUtils.getWithNotesOnly();
             var idsToHide = await commonUtils.getIdsToHide() || {};
-            var cssClass = await this.getTargetCssClass(this.mode, id, idsToHide, withNotesOnly);
+            var cssClass = await this.getTargetCssClass(this.mode, id, idsToHide, this.withNotesOnly);
             dom.applyTargetClass(elem, cssClass);
         }
     }
 
     this._noteHideEventSubscriber = async function(idsToHide) {
         debug.debug('Updating ids to hide from callback');
-        var withNotesOnly = commonUtils.getWithNotesOnly();
+        const withNotesCache = new Set()
         for (const id of this.idToElem.keys()){
-            var cssClass = await this.getTargetCssClass(this.mode, id, idsToHide, withNotesOnly);
-            var elem = this.idToElem.get(id);
+            const cssClass = await this.getTargetCssClass(this.mode, id, idsToHide, this.withNotesOnly, withNotesCache);
+            const elem = this.idToElem.get(id);
             dom.applyTargetClass(elem, cssClass);
         }
     }
 
     /** Czy dany anons powinien zostać ukryty */
-    this.getTargetCssClass = async function(mode, id, idsToHide, withNotesOnly){
+    this.getTargetCssClass = async function(mode, id, idsToHide, withNotesOnly, withNotesCache){
+        const hasNote = async function(id){
+            if (!withNotesCache) {
+                return await commonUtils.hasNote(id)
+            }
+            if (withNotesCache.size === 0) {
+                const allWithNotes = await commonUtils.getAllWithNotes()
+                for(const id2 of allWithNotes){
+                    withNotesCache.add(id2)
+                }
+            }
+            return withNotesCache.has(id)
+        }
         if (mode === 3){
             // tylko-bez-notatek
-            return await commonUtils.hasNote(id) ? 'roksahidden_search_hide' : '';
+            return await hasNote(id) ? 'roksahidden_search_hide' : '';
         }
         // TODO: to jest nieładnie tu wywoływana funkcja...
-        if (withNotesOnly && !await commonUtils.hasNote(id)){
+        if (withNotesOnly && !await hasNote(id)){
             return 'roksahidden_search_hide';
         }
 
@@ -718,34 +732,34 @@ var searchListEngine = new function() {
         return '';
     }
     this.switchClass = async function(mode){
-        var withNotesOnly = commonUtils.getWithNotesOnly();
-        if (mode === 3 && withNotesOnly){
+        if (mode === 3 && this.withNotesOnly){
             // wyłączam tryb tylko-z-notatkami
-            withNotesOnly = false;
+            this.withNotesOnly = false;
             dom.applyTargetClass(this.myOnlyWithNotesSwitch, '');
         }
-        await this.processSearchResults(mode, withNotesOnly);
+        await this.processSearchResults(mode, this.withNotesOnly && !this.isByPhoneSearch);
         this.mySwitchers.forEach((e2, idx) => {
             dom.applyTargetClass(e2, idx === mode ? 'roksahidden_active' : '');
         });
         commonUtils.setCssModeForSearch(mode);
-        commonUtils.setWithNotesOnly(withNotesOnly);
+        commonUtils.setWithNotesOnly(this.withNotesOnly);
         this.mode = mode;
         return false;
     }
     this.switchWithNotesOnly = async function(){
-        var mode = commonUtils.getCssModeForSearch();
-        var newWithNotesOnly = this.myOnlyWithNotesSwitch.className.indexOf('roksahidden_active') === -1;
-        if (newWithNotesOnly && mode === 3){
+        var withNotesOnly = this.myOnlyWithNotesSwitch.className.indexOf('roksahidden_active') === -1;
+        if (withNotesOnly && this.mode === 3){
             // włączam tylko z notatkami, wyłączam tylko-bez-notatek
-            mode = commonUtils.getPrevCssMode();
+            this.mode = commonUtils.getPrevCssMode();
         }
-        await this.processSearchResults(mode, newWithNotesOnly);
-        dom.applyTargetClass(this.myOnlyWithNotesSwitch, newWithNotesOnly ? 'roksahidden_active' : '');
+        await this.processSearchResults(this.mode, withNotesOnly);
+        dom.applyTargetClass(this.myOnlyWithNotesSwitch, withNotesOnly ? 'roksahidden_active' : '');
         this.mySwitchers.forEach((e2, idx) => {
-            dom.applyTargetClass(e2, idx === mode ? 'roksahidden_active' : '');
+            dom.applyTargetClass(e2, idx === this.mode ? 'roksahidden_active' : '');
         });
-        commonUtils.setWithNotesOnly(newWithNotesOnly);
+        commonUtils.setCssModeForSearch(this.mode);
+        commonUtils.setWithNotesOnly(withNotesOnly);
+        this.withNotesOnly = withNotesOnly
         return false;
     }
     /** Zmienia link relatywny na absolutny */
@@ -773,6 +787,11 @@ var searchListEngine = new function() {
                 tooltipElem.appendChild(tooltipNotes);
             } else {
                 tooltipNotes.textContent = itemNotes;
+            }
+            let orgNotatka = dom.getNodeByCss('div.notatka_group_content', elem)
+            if (orgNotatka) {
+                orgNotatka = orgNotatka.parentNode
+                orgNotatka.parentNode.removeChild(orgNotatka)
             }
         } else {
             if (tooltipNotes !== null){
@@ -877,10 +896,10 @@ var anonsEngine = new function() {
         favoritiesEngine.init();
         const txt = notatka.innerText.trim()
         if (txt !== ''){
-            await this.updateStoredNote(notatka);
             this.validatePhoneNo(notatka);
             this.linkifyNotes(notatka);
-            await this.updateNotatkaIndex(notatka)
+            this.updateStoredNote(notatka); // async
+            this.updateNotatkaIndex(notatka) // async
         }
         this.hookNotatkaChanged(notatka);
         this.hookNotatkaLinkClick(notatka)
@@ -1052,7 +1071,7 @@ var anonsEngine = new function() {
     }
 
     this.processMainPhoneNumber = function() {
-        var telNode = dom.getNode("//span[contains(@class, 'dane_anonsu_tel')]");
+        var telNode = dom.getNodeByCss("span.dane_anonsu_tel");
         if (telNode === null){
             debug.warn('Can not find phone number node');
             return ;
@@ -1078,12 +1097,12 @@ var anonsEngine = new function() {
         return this.mainPhoneNo = telElements.splice(1).join('-')
     }
 
-    this.updateStoredNote = async function(notatka)
+    this.updateStoredNote = function(notatka)
     {
         var txt = notatka.innerText.trim();
         var id = this.extractId();
-        await commonUtils.saveNote(id, txt);
-        await favoritiesEngine.updateIdToHide(id, this.extractCity(), txt);
+        commonUtils.saveNote(id, txt); // asynch
+        favoritiesEngine.updateIdToHide(id, this.extractCity(), txt); // asynch
     }
     this.citi = '';
     this.extractCity = function()
@@ -1131,7 +1150,7 @@ var indexEngine = new function() {
         // TODO: tu by się przydało jeszcze coś takiego, że jeżeli to jest ekstra numer telefonu, i nie ma go w notatkach,
         // to zapisujemy go osobno, żeby nam nie uciekł -> przydatne z listy ulubionych, gdy DIVy zmieniają nr jak rękawiczki
         const expr = /[5678][0-9]{2}-[0-9]{3}-[0-9]{3}/g
-        const byPhone = new Map()
+        const byPhone = new Set()
 
         const textLines = text.match(/[^\n\r]+/g)
         for (const line of textLines) {
@@ -1139,7 +1158,7 @@ var indexEngine = new function() {
             let match = expr.exec(line)
             while (match !== null){
                 const phone = match[0].replace(/-/g, '')
-                byPhone.set(phone, true)
+                byPhone.add(phone)
                 match = expr.exec(line)
             }
         }
@@ -1305,8 +1324,12 @@ var commonUtils = new function(){
 
     /** Zwraca informację, czy istnieje notatka dla tego anonsu */
     this.hasNote = async function(id){
-        var note = await this.getNote(id)
-        return note !== null;
+        return await database.hasNote(id)
+    }
+
+    /** Zwraca listę wszystkich id ogłoszeń, które mają notatki */
+    this.getAllWithNotes = async function(){
+        return await database.getAllWithNotes()
     }
 
     /**
@@ -1474,7 +1497,7 @@ var commonUtils = new function(){
         }
         var expr = /([5678][0-9]{2})[ -]([0-9]{3})[ -]([0-9]{3})/g;
         var telElements;
-        if ((telElements = expr.exec(telNode.textContent)) === null){
+        if ((telElements = expr.exec(telNode.innerText)) === null){
             debug.info('Can not find phone number, id: {}', id);
             return ;
         }
@@ -1515,6 +1538,14 @@ var database = new function(){
     this.getNote = async function(id){
         const note = await this.db.notes.get(id)
         return note ? note.note : null
+    }
+    this.hasNote = async function(id){
+        const hasNote = await this.db.notes.where('id').equals(id).count()
+        return hasNote > 0
+    }
+    /** Zwraca tablicę id ogłoszeń z notatkami */
+    this.getAllWithNotes = async function(){
+        return await this.db.notes.toCollection().keys()
     }
     this.saveNote = async function(id, note){
         await this.db.notes.put({id: id, note:note})
@@ -1909,13 +1940,14 @@ if (document.readyState === 'loading'){
 }
 
 window.roxaHidden = {
-    database: database,
-    dom: dom,
     commonUtils: commonUtils,
+    dom: dom,
+    indexEngine: indexEngine,
+    database: database,
     debug: debug,
     favoritiesListEngine: favoritiesListEngine,
     favoritiesEngine: favoritiesEngine,
-    anonsEngine: anonsEngine
+    anonsEngine: anonsEngine,
 }
 
 })();
