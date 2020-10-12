@@ -2,7 +2,7 @@
 // @name           roksahidden
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        9.1.1
+// @version        9.1.2
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -310,7 +310,7 @@ var favoritiesListEngine = new function(){
         }
         
         commonUtils.saveIdsToHide(myIdsToHide);
-        commonUtils.registerNoteChangeEvent(function(id, newNote){
+        commonUtils.registerNoteChangeEvent((id, newNote) => {
             var elem = idToElem[id];
             if (!elem){
                 return ;
@@ -318,7 +318,7 @@ var favoritiesListEngine = new function(){
             this.validatePhoneNo(elem, newNote);
             var textarea = dom.getNode(".//textarea[contains(@class, 'user_note_tresc')]", elem);
             textarea.value = newNote;
-        }.bind(favoritiesListEngine));
+        });
         
         // apply UI changes
         debug.info("Applying UI changes on {} elements", ids.length);
@@ -513,23 +513,17 @@ var searchListEngine = new function() {
         }
         debug.info('Found extra {} ids for tel no {}', cnt, telNo)
         
-        // TODO: poprawić UI, bo jest fatalny
         const header = dom.createElem('h2', {}, 'Pozostałe ogłoszenia dla numeru ' + telNo)
         const oldGroup = dom.getNodeByCss('div.search_result') || dom.getNodeByCss('.main_error_text')
-        
         const newGroup = dom.createElem('div', {'class':'roxahidden_extra_group'})
-        
         anonse.filter(id => anonseMap[id] === true).forEach(id => {
             const item = this.createItemFromId(id)
             newGroup.appendChild(item)
         })
-        //for (let i=0; i<7; i++) {
-        //    newGroup.appendChild(dom.createElem('div', {'class':'flex_for_userG'}))
-        //}
-        
         oldGroup.parentNode.appendChild(header)
         oldGroup.parentNode.appendChild(newGroup)
         
+        // TODO: lista linków do skopiowania
     }
     
     this.createItemFromId = function(id) {
@@ -550,6 +544,7 @@ var searchListEngine = new function() {
         }
         img.addEventListener('error', imgErrListener, false)
         dom.getNodeByCss('.podpis', doc).innerText = title
+        // TODO: podlinkowanie linków w notatce
         dom.getNodeByCss('.roksahidden_tooltip_2', doc).innerText = note
         
         return doc.querySelector('body *')
@@ -589,8 +584,7 @@ var searchListEngine = new function() {
                    3 - pokaż tylko bez notatek (potencjalnie nowe)
        @param withNotesOnly ukrywa te bez notatek             
      */
-    this.processSearchResults = function(mode, withNotesOnly)
-    {
+    this.processSearchResults = function(mode, withNotesOnly) {
         debug.info('process search, mode: {}, withNotesOnly: {}', mode, withNotesOnly); 
         var idsToHide = commonUtils.getIdsToHide() || {};
         var allIds = Object.keys(this.idToElem);
@@ -610,7 +604,8 @@ var searchListEngine = new function() {
     }
     this.idToElem = {};
     
-    this.loadAnonseData = function(){
+    this.loadAnonseData = function(){ 
+        // TODO: informacja o tym, czy jakieś ogłoszenia zostały wycięte przez filtr "ukryte ogłoszenia" roksy
         var xp = dom.getNodes("//div[@id='anons_group']/a");
         debug.info('search list, start: {}', xp.snapshotLength);
         var count = 0;
@@ -757,8 +752,7 @@ var searchListEngine = new function() {
     this.allAnonseUrls = [];
     this.mySwitchers = [];
     this.myOnlyWithNotesSwitch = null;
-    this.addParsedLinks = function()
-    {
+    this.addParsedLinks = function(){
         var div = dom.createElem('div', {'class':'roksahidden_anonse_links'});
 
         var span = dom.createElem('span', {}, 'Linki do ogłoszeń (' + this.allAnonseUrls.length + ')');
@@ -841,20 +835,48 @@ var anonsEngine = new function() {
             return ;
         }
         favoritiesEngine.init();
-        var txt = notatka.innerText.trim();
+        const txt = notatka.innerText.trim()
         if (txt !== ''){
             this.updateStoredNote(notatka);
             this.validatePhoneNo(notatka);
             this.linkifyNotes(notatka);
+            this.updateNotatkaIndex(notatka)
         }
         this.hookNotatkaChanged(notatka);
+        this.hookNotatkaLinkClick(notatka)
+    }
+    this.hookNotatkaChanged = function(notatka){
+        // Callback function to execute when mutations are observed
+        const callback = (mutationsList, observer) => {
+            // Use traditional 'for loops' for IE 11
+            for(let mutation of mutationsList) {
+                if (mutation.type === 'childList' && mutation.target === notatka){
+                    this.updateStoredNote(notatka);
+                    this.validatePhoneNo(notatka);
+                    this.linkifyNotes(notatka); // todo: obsługa innych funkcjonalności
+                    this.updateNotatkaIndex(notatka)
+                    break;
+                }
+            }
+            observer.takeRecords();
+        }
+
+        // Create an observer instance linked to the callback function
+        const observer = new MutationObserver(callback);
+
+        // Options for the observer (which mutations to observe)
+        const config = { attributes: false, childList: true, subtree: false };
+        // Start observing the target node for configured mutations
+        observer.observe(notatka, config);    
+    }
+    this.hookNotatkaLinkClick = function(notatka){
         const processLinkClicked = function(href){
             let sel = 'a[href="' + href + '"]';
             if (href.includes('.roksa.pl/')) {
                 const extractIdPattern = /[\/=]([0-9]+)$/g;
                 const id = extractIdPattern.exec(href);
                 if (id !== null){
-                    sel = sel + ', a[href$="' + id[1] + '"][href*=".roksa.pl/"]';
+                    sel = sel + ', a[href$="/' + id[1] + '"][href*=".roksa.pl/"]';
                 }
             }
             
@@ -879,45 +901,26 @@ var anonsEngine = new function() {
             lcc.postMessage(href);
             processLinkClicked(href);
         });
-        lcc.onmessage = function (ev) { processLinkClicked(ev.data); }
-        if (txt !== '' && enableExtendedSearchByPhone) {
-            const id = this.extractId()
-            const phoneNo = this.extractMainPhoneNo()
-            indexEngine.indexPhoneNos(id, txt + '\n' + phoneNo)
-            const title = dom.getNodeByCss('#anons_header h2.next_header')
-            if (title !== null) {
-                cacheEngine.put('title', id, title.innerText)
-            }
-            const thumb = dom.getNodeByCss('ul.galeria-thumb-list li a img')
-            if (thumb !== null) {
-                let thumbSrc = thumb.getAttribute('src')
-                cacheEngine.put('thumb', id, thumbSrc)
-            }
+        lcc.onmessage = (ev) => processLinkClicked(ev.data);
+    }
+    this.updateNotatkaIndex = function(notatka){
+        if (!enableExtendedSearchByPhone) {
+            return
         }
-    }
-    this.hookNotatkaChanged = function(notatka){
-        // Options for the observer (which mutations to observe)
-        const config = { attributes: false, childList: true, subtree: false };
-        // Callback function to execute when mutations are observed
-        const callback = function(mutationsList, observer) {
-            // Use traditional 'for loops' for IE 11
-            for(let mutation of mutationsList) {
-                if (mutation.type === 'childList' && mutation.target === notatka){
-                    this.updateStoredNote(notatka);
-                    this.validatePhoneNo(notatka);
-                    this.linkifyNotes(notatka); // todo: obsługa innych funkcjonalności
-                    break;
-                }
-            }
-            observer.takeRecords();
-        }.bind(this);
-
-        // Create an observer instance linked to the callback function
-        const observer = new MutationObserver(callback);
-
-        // Start observing the target node for configured mutations
-        observer.observe(notatka, config);    
-    }
+        const id = this.extractId()
+        const phoneNo = this.extractMainPhoneNo()
+        const txt = notatka.innerText.trim()
+        indexEngine.indexPhoneNos(id, txt + '\n' + phoneNo)
+        const title = dom.getNodeByCss('#anons_header h2.next_header')
+        if (title !== null) {
+            cacheEngine.put('title', id, title.innerText)
+        }
+        const thumb = dom.getNodeByCss('ul.galeria-thumb-list li a img')
+        if (thumb !== null) {
+            let thumbSrc = thumb.getAttribute('src')
+            cacheEngine.put('thumb', id, thumbSrc)
+        }
+}
     this.validatePhoneNo = function(notatka){
         if (!validatePhoneNoInAnons){
             return ;
@@ -936,7 +939,7 @@ var anonsEngine = new function() {
         var exprHttp = /https?:\/\/[^ <\n\r\t(]+/g; // fucking bad expression :/
         var exprTel = /[0-9]{3}[ -][0-9]{3}[ -][0-9]{3}/g;
         var expr = /(https?:\/\/[^ <\n\r\t]+)|([0-9]{3}[ -][0-9]{3}[ -][0-9]{3})/g;
-        var processor = function(linkValue){
+        var processor = (linkValue) => {
             exprHttp.lastIndex = 0;
             if (exprHttp.exec(linkValue) !== null){
                 const className = linkValue == document.location.href ? 'roksahidden_self' : '';
@@ -947,7 +950,7 @@ var anonsEngine = new function() {
                 return this.linkifyTel(linkValue);
             }
             return linkValue;
-        }.bind(this);
+        }
         dom.traverseChildNodes(notatka, function(node){
             dom.splitNode(node, expr, processor);
         });
@@ -995,7 +998,7 @@ var anonsEngine = new function() {
     this.mainPhoneNo = ''
     this.extractMainPhoneNo = function() {
         if (this.mainPhoneNo.length > 0) {
-            return mainPhoneNo
+            return this.mainPhoneNo
         }
         const telNode = dom.getNode("//span[contains(@class, 'dane_anonsu_tel')]")
         if (telNode === null){
@@ -1100,31 +1103,29 @@ var indexEngine = new function() {
                 match = expr.exec(line)
             }
         })
-        
-        for (const phoneNo in byPhone.keys()){
-            this._addIdToPhoneIndex(id, phoneNo)
-        }
 
         // posortowana tablica nr telefonów w tym ogłoszeniu
         const byPhone2 = [...byPhone.keys()]
         commonUtils.sortNum(byPhone2)
+        byPhone2.forEach(phoneNo => this._addIdToPhoneIndex(id, phoneNo))
         
         const keyById = 'idx_byId_' + id
         const byIdPhones = this.storage.getItem(keyById)
-        byIdPhones.split(',').forEach(phoneNo => {
-            // jeżeli w obecnym ogłoszeniu nie ma tego nr telefonu, to trzeba dla tego nr zaktualizować indeks
-            if (byPhone.get(phoneNo) !== true) {
-                this._removeIdFromPhoneIndex(id, phoneNo)
-                anyChange = true
-            }
-        });
+        if (byIdPhones !== null) {
+            byIdPhones.split(',').forEach(phoneNo => {
+                // jeżeli w obecnym ogłoszeniu nie ma tego nr telefonu, to trzeba dla tego nr zaktualizować indeks
+                if (byPhone.get(phoneNo) !== true) {
+                    this._removeIdFromPhoneIndex(id, phoneNo)
+                }
+            });
+        }
         
         if (byPhone.size === 0) {
             this.storage.removeItem(keyById)
             debug.trace('Removed index of id {}', id)
         } else {
             const byPhone2s = byPhone2.join(',')
-            if (byIdPhones !== byPhone2s) {
+            if (byIdPhones === null || byIdPhones !== byPhone2s) {
                 this.storage.setItem(keyById, byPhone2s)
                 debug.trace('Updated index of id {} to contain {} phone nos', id, byPhone.size.length)
             }
@@ -1158,12 +1159,12 @@ var indexEngine = new function() {
             this.storage.setItem(keyByPhone, id)
             debug.trace('Created index of phone {}', phoneNo)
         } else if (!byPhoneIds.includes('' + id)) { // szybki test na stringach
-            const byPhoneIdsMap = {}
+            const byPhoneIdsMap = new Map()
             byPhoneIds.split(',').forEach(id => {
-                byPhoneIdsMap[id] = true
+                byPhoneIdsMap.set(id, true)
             })
-            byPhoneIdsMap[id] = true
-            const byPhoneIdsArr = Object.keys(byPhoneIdsMap)
+            byPhoneIdsMap.set(id, true)
+            const byPhoneIdsArr = [...byPhoneIdsMap.keys()]
             commonUtils.sortNum(byPhoneIdsArr)
             const byPhoneIds2 = byPhoneIdsArr.join(',')
             if (byPhoneIds !== byPhoneIds2) {
