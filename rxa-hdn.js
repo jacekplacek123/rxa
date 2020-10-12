@@ -2,7 +2,7 @@
 // @name           roksahidden
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        8.11.1
+// @version        9.1.1
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -86,6 +86,9 @@ var validatePhoneNoInAnons = true;
 // czy wyświetlać informację na liście ulubionych, że nr telefonu uległ zmianie?
 var validatePhoneNoInFavorities = true;
 
+// jeżeli true, i wyszukiwanie po nr telefonu, to zwraca także historyczne ogłoszenia dla tego numeru
+var enableExtendedSearchByPhone = true;
+
 //-----------------------------------------------------------
 // czy przeładować strony http na https?
 var forceHttps = true;
@@ -123,6 +126,9 @@ var cssForSearch = [
     'div.roksahidden_anonse_links { padding-right: 5px; padding-left: 5px; } '+
     'div.roksahidden_anonse_links span { color: #4C0365; font-size: 16px; line-height: normal; } ',
     'div.roksahidden_anonse_links textarea { height:5em; width:100%; border: 1px solid #AC81AD; } ',
+    'div.roxahidden_extra_group > div { clear: both; }',
+    'div.roksahidden_tooltip_2 { white-space: pre; height: 197px; line-height: 110%; overflow-x: hidden; border: 2px solid #bfa7d1; padding: 4px; }',
+    'div.roksahidden_tooltip_wrapper { padding-top: 1px; }',
     '',
 ].join('\n');
     
@@ -249,6 +255,7 @@ var favoritiesListEngine = new function(){
             var itemResult = {'doHide': false, 'reason': ''};
             var form = dom.getNode(".//form[contains(@class, 'user_note_form')]", elem);
             var city = dom.getElemText(".//div[@class='favourites_content_list'][1]", elem);
+            
             var txt = '';
             favoritiesEngine.isAnonsCityOkImpl(city, itemResult);
             if (form !== null){
@@ -279,6 +286,27 @@ var favoritiesListEngine = new function(){
             } else {
                 myIdsToHide[id] = 0;
             }
+            
+            if (enableExtendedSearchByPhone && txt !== ''){
+                const title = dom.getElemText(".//div[@class='favourites_name']", elem)
+                cacheEngine.put('title', id, title)
+                
+                const thumbImg = dom.getNodeByCss('div.favourites_box_image img', elem)
+                if (thumbImg !== null) {
+                    cacheEngine.put('thumb', id, thumbImg.getAttribute('src'))
+                }
+                
+                let txt2 = txt
+                const telNode = dom.getNodeByCss('.dane_anonsu_tel', elem)
+                if (telNode != null) {
+                    let telElements
+                    if ((telElements = /([0-9]{3})[ -]([0-9]{3})[ -]([0-9]{3})/g .exec(telNode.innerText)) !== null){
+                        txt2 = txt2 + '\n' + telElements.splice(1).join('-')
+                    }
+                }
+                
+                indexEngine.indexPhoneNos(id, txt2)
+            }            
         }
         
         commonUtils.saveIdsToHide(myIdsToHide);
@@ -464,8 +492,69 @@ var searchListEngine = new function() {
         if (showSearchSwitchBox)
             this.createSearchSwitchBox(mode, isByPhoneSearch, withNotesOnly);
         this.mode = mode;
+        
+        if (enableExtendedSearchByPhone && isByPhoneSearch) {
+            this.loadExtendedSearchData();
+        }
+    }
+
+    this.loadExtendedSearchData = function() {
+        const telNo = window.location.href.match(/nr_tel=([0-9]{3})[-+]?([0-9]{3})[-+]?([0-9]{3})/).slice(1).join('-')
+        const anonse = indexEngine.getByPhoneNo(telNo)
+        if (anonse == null || anonse.length === 0) {
+            return 
+        }
+        const anonseMap = {}
+        anonse.forEach(id => anonseMap[id] = true)
+        Object.keys(this.idToElem).forEach(id => delete anonseMap[id])
+        const cnt = Object.keys(anonseMap).length
+        if (cnt === 0) {
+            return
+        }
+        debug.info('Found extra {} ids for tel no {}', cnt, telNo)
+        
+        // TODO: poprawić UI, bo jest fatalny
+        const header = dom.createElem('h2', {}, 'Pozostałe ogłoszenia dla numeru ' + telNo)
+        const oldGroup = dom.getNodeByCss('div.search_result') || dom.getNodeByCss('.main_error_text')
+        
+        const newGroup = dom.createElem('div', {'class':'roxahidden_extra_group'})
+        
+        anonse.filter(id => anonseMap[id] === true).forEach(id => {
+            const item = this.createItemFromId(id)
+            newGroup.appendChild(item)
+        })
+        //for (let i=0; i<7; i++) {
+        //    newGroup.appendChild(dom.createElem('div', {'class':'flex_for_userG'}))
+        //}
+        
+        oldGroup.parentNode.appendChild(header)
+        oldGroup.parentNode.appendChild(newGroup)
+        
     }
     
+    this.createItemFromId = function(id) {
+        const title = cacheEngine.get('title', id)
+        const imgSrc = cacheEngine.get('thumb', id)
+        const note = commonUtils.getNote(id)
+        
+        const template = 
+            '<div><a><div class="random_item"><img><div class="podpis nowrap"></div></div></a>' + 
+            '<div class="roksahidden_tooltip_wrapper"><div class="roksahidden_tooltip_2"></div></div></div>'
+        let doc = new DOMParser().parseFromString(template, 'text/html')
+        dom.getNodeByCss('a', doc).setAttribute('href', '/pl/anonse/pokaz/' + id)
+        const img = dom.getNodeByCss('img', doc)
+        img.setAttribute('src', imgSrc.replace('/mini/', '/mini2/'))
+        const imgErrListener = function(){
+            img.removeEventListener('error', imgErrListener, false)
+            img.setAttribute('src', imgSrc)
+        }
+        img.addEventListener('error', imgErrListener, false)
+        dom.getNodeByCss('.podpis', doc).innerText = title
+        dom.getNodeByCss('.roksahidden_tooltip_2', doc).innerText = note
+        
+        return doc.querySelector('body *')
+    }
+
     this.sortAnonseById = function(){
         let xp = dom.getNodes("//div[@id='anons_group']/a");
         let extractIdPattern = /\/([0-9]+)$/g;
@@ -520,6 +609,7 @@ var searchListEngine = new function() {
         debug.info('process search hide {} out of {} items', count, allIds.length); 
     }
     this.idToElem = {};
+    
     this.loadAnonseData = function(){
         var xp = dom.getNodes("//div[@id='anons_group']/a");
         debug.info('search list, start: {}', xp.snapshotLength);
@@ -735,7 +825,9 @@ var searchListEngine = new function() {
         elem.className = elem.className + ' roksahidden_active';
         
         var parent = dom.getNode("//div[@class='search_result']");
-        parent.insertBefore(xp, parent.firstChild);
+        if (parent !== null){
+            parent.insertBefore(xp, parent.firstChild)
+        }
     }
 }
 
@@ -749,7 +841,7 @@ var anonsEngine = new function() {
             return ;
         }
         favoritiesEngine.init();
-        var txt = notatka.textContent.trim();
+        var txt = notatka.innerText.trim();
         if (txt !== ''){
             this.updateStoredNote(notatka);
             this.validatePhoneNo(notatka);
@@ -788,6 +880,20 @@ var anonsEngine = new function() {
             processLinkClicked(href);
         });
         lcc.onmessage = function (ev) { processLinkClicked(ev.data); }
+        if (txt !== '' && enableExtendedSearchByPhone) {
+            const id = this.extractId()
+            const phoneNo = this.extractMainPhoneNo()
+            indexEngine.indexPhoneNos(id, txt + '\n' + phoneNo)
+            const title = dom.getNodeByCss('#anons_header h2.next_header')
+            if (title !== null) {
+                cacheEngine.put('title', id, title.innerText)
+            }
+            const thumb = dom.getNodeByCss('ul.galeria-thumb-list li a img')
+            if (thumb !== null) {
+                let thumbSrc = thumb.getAttribute('src')
+                cacheEngine.put('thumb', id, thumbSrc)
+            }
+        }
     }
     this.hookNotatkaChanged = function(notatka){
         // Options for the observer (which mutations to observe)
@@ -886,20 +992,36 @@ var anonsEngine = new function() {
         commonUtils.processPhoneNumber(telNode, providers, this.extractId());
     }
     
+    this.mainPhoneNo = ''
+    this.extractMainPhoneNo = function() {
+        if (this.mainPhoneNo.length > 0) {
+            return mainPhoneNo
+        }
+        const telNode = dom.getNode("//span[contains(@class, 'dane_anonsu_tel')]")
+        if (telNode === null){
+            return
+        }
+        let telElements
+        if ((telElements = /([0-9]{3})[ -]([0-9]{3})[ -]([0-9]{3})/g .exec(telNode.innerText)) === null){
+            return
+        }
+        return this.mainPhoneNo = telElements.splice(1).join('-')
+    }
+    
     this.updateStoredNote = function(notatka)
     {
-        var txt = notatka.textContent.trim();
-        if (txt !== '' && txt.indexOf('\n') < 0){
-            var html = notatka.innerHTML.trim();
-            html = html.replace(/<br[ \/]?>/g, '\r\n');
-            html = html.replace(/<\/?[a-z]+[^<]*>/g,'');
-            html = html.replace(/&gt;/g,'>');
-            html = html.replace(/&lt;/g,'<');
-            html = html.replace(/&amp;/g,'&');
-            html = html.replace(/&apos;/g,'\'');
-            html = html.replace(/&quot;/g,'"');
-            txt = html;
-        }
+        var txt = notatka.innerText.trim();
+//        if (txt !== '' && txt.indexOf('\n') < 0){
+//            var html = notatka.innerHTML.trim();
+//            html = html.replace(/<br[ \/]?>/g, '\r\n');
+//            html = html.replace(/<\/?[a-z]+[^<]*>/g,'');
+//            html = html.replace(/&gt;/g,'>');
+//            html = html.replace(/&lt;/g,'<');
+//            html = html.replace(/&amp;/g,'&');
+//            html = html.replace(/&apos;/g,'\'');
+//            html = html.replace(/&quot;/g,'"');
+//            txt = html;
+//        }
         var id = this.extractId();
         commonUtils.saveNote(id, txt);
         favoritiesEngine.updateIdToHide(id, this.extractCity(), txt);
@@ -937,6 +1059,141 @@ var anonsEngine = new function() {
     }
 }
 
+var cacheEngine = new function() {
+    this.storage = window.localStorage;
+    
+    this.put = function(type, key, value) {
+        const cacheKey = 'cache_' + type + '_' + key
+        if (typeof value === 'undefined' || value === null || value === '') {
+            this.storage.removeItem(cacheKey)
+        } else {
+            const prevValue = this.storage.getItem(cacheKey)
+            if (prevValue === null || prevValue !== value) {
+                this.storage.setItem(cacheKey, value)
+            }
+        }
+    }
+    
+    this.get = function(type, key, defaultValue) {
+        const cacheKey = 'cache_' + type + '_' + key
+        const value = this.storage.getItem(cacheKey)
+        return value === null ? defaultValue : value
+    }
+}
+
+var indexEngine = new function() {
+    this.storage = window.localStorage;
+    
+    this.indexPhoneNos = function(id, text) {
+        // TODO: tu by się przydało jeszcze coś takiego, że jeżeli to jest ekstra numer telefonu, i nie ma go w notatkach,
+        // to zapisujemy go osobno, żeby nam nie uciekł -> przydatne z listy ulubionych, gdy DIVy zmieniają nr jak rękawiczki
+        const expr = /[0-9]{3}-[0-9]{3}-[0-9]{3}/g
+        const byPhone = new Map()
+        
+        const textLines = text.match(/[^\n\r]+/g)
+        textLines.forEach(line => {
+            expr.lastIndex = 0
+            let match = expr.exec(line)
+            while (match !== null){
+                const phone = match[0].replace(/-/g, '')
+                byPhone.set(phone, true)
+                match = expr.exec(line)
+            }
+        })
+        
+        for (const phoneNo in byPhone.keys()){
+            this._addIdToPhoneIndex(id, phoneNo)
+        }
+
+        // posortowana tablica nr telefonów w tym ogłoszeniu
+        const byPhone2 = [...byPhone.keys()]
+        commonUtils.sortNum(byPhone2)
+        
+        const keyById = 'idx_byId_' + id
+        const byIdPhones = this.storage.getItem(keyById)
+        byIdPhones.split(',').forEach(phoneNo => {
+            // jeżeli w obecnym ogłoszeniu nie ma tego nr telefonu, to trzeba dla tego nr zaktualizować indeks
+            if (byPhone.get(phoneNo) !== true) {
+                this._removeIdFromPhoneIndex(id, phoneNo)
+                anyChange = true
+            }
+        });
+        
+        if (byPhone.size === 0) {
+            this.storage.removeItem(keyById)
+            debug.trace('Removed index of id {}', id)
+        } else {
+            const byPhone2s = byPhone2.join(',')
+            if (byIdPhones !== byPhone2s) {
+                this.storage.setItem(keyById, byPhone2s)
+                debug.trace('Updated index of id {} to contain {} phone nos', id, byPhone.size.length)
+            }
+        }
+    }
+    
+    this.getByPhoneNo = function(phoneNo) {
+        const keyByPhone = 'idx_byPhone_' + phoneNo.replace(/[^0-9]/g, '')
+        let byPhoneIds = this.storage.getItem(keyByPhone)
+        if (byPhoneIds === null){
+            return null
+        }
+        const byPhoneIdsArr = []
+        byPhoneIds.split(',').forEach(function(id){
+            byPhoneIdsArr.push(parseInt(id))
+        });
+        return byPhoneIdsArr
+    }
+    
+    this.remove = function(id, phoneNo) {
+        const keyByPhone = 'idx_byPhone_' + phoneNo.replace(/[^0-9]/g, '')
+        this.storage.removeItem(keyByPhone)
+        const keyById = 'idx_byId_' + id
+        this.storage.removeItem(keyById)
+    }
+    
+    this._addIdToPhoneIndex = function(id, phoneNo) {
+        const keyByPhone = 'idx_byPhone_' + phoneNo
+        const byPhoneIds = this.storage.getItem(keyByPhone)
+        if (byPhoneIds === null){
+            this.storage.setItem(keyByPhone, id)
+            debug.trace('Created index of phone {}', phoneNo)
+        } else if (!byPhoneIds.includes('' + id)) { // szybki test na stringach
+            const byPhoneIdsMap = {}
+            byPhoneIds.split(',').forEach(id => {
+                byPhoneIdsMap[id] = true
+            })
+            byPhoneIdsMap[id] = true
+            const byPhoneIdsArr = Object.keys(byPhoneIdsMap)
+            commonUtils.sortNum(byPhoneIdsArr)
+            const byPhoneIds2 = byPhoneIdsArr.join(',')
+            if (byPhoneIds !== byPhoneIds2) {
+                this.storage.setItem(keyByPhone, byPhoneIdsArr)
+                debug.trace('Updated index of phone {} to contain {} ids', phoneNo, byPhoneIdsArr.length)
+            }
+        }
+    }
+    
+    this._removeIdFromPhoneIndex = function(id, phoneNo) {
+        const keyByPhone = 'idx_byPhone_' + phoneNo
+        let byPhoneIds = this.storage.getItem(keyByPhone)
+        if (byPhoneIds === null){
+            return
+        }
+        const byPhoneIdsMap = {}
+        byPhoneIds.split(',').forEach(id => {
+            byPhoneIdsMap[id] = true
+        })
+        delete byPhoneIdsMap[id]
+        byPhoneIds = Object.keys(byPhoneIdsMap)
+        if (byPhoneIds.length === 0) {
+            this.storage.removeItem(keyByPhone)
+            debug.trace('Removed index of phone {}', phoneNo)
+        } else {
+            this.storage.setItem(keyByPhone, byPhoneIds.join(','))
+            debug.trace('Updated index of phone {} to contain {} ids', phoneNo, byPhoneIds.length)
+        }
+    }
+}
 // ----------------------------------- UTILS -----------------------------------
 
 var commonUtils = new function(){
@@ -1453,18 +1710,7 @@ var dom = new function(){
 
 // ----------------------------------- MAIN -----------------------------------
 var main = new function(){
-    this.init = function(){
-        if (!String.prototype.trim) {
-            String.prototype.trim = function () {
-                return this.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
-            };
-        }
-        if (!String.prototype.startsWith) {
-            String.prototype.startsWith = function(searchString, position){
-                position = position || 0;
-                return this.substr(position, searchString.length) === searchString;
-            };
-        }        
+    this.init = function(){        
         if (!Array.isArray) {
             Array.isArray = function(arg) {
                 return Object.prototype.toString.call(arg) === '[object Array]';
@@ -1510,6 +1756,9 @@ var main = new function(){
 
 // main function
 debug.info('rxa-hdn: {}', window.location);
+//if (doDebug >= 2) {
+//    window.roxaHidden = this
+//}
 if (forceHttps && window.location.protocol === 'http:'){
     window.location.replace(window.location.href.replace('http://', 'https://'));
     return ;
