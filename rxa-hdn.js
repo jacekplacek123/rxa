@@ -2,7 +2,7 @@
 // @name           roksahidden
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        8.9.3
+// @version        8.10.1
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -232,8 +232,8 @@ var favoritiesListEngine = new function(){
         var log = '{} --> hide = {}, {}';
         if (debug.isTraceEnabled()) log += '; {}; {}';
 
-        for (var i=0; i<favoritiesSize; i++){
-            var elem = xp.snapshotItem(i);
+        for (let i=0; i<favoritiesSize; i++){
+            let elem = xp.snapshotItem(i);
             var id = elem.getAttribute('id').replace(/[^0-9]/g, '');
             debug.debug('------------------------------------------------');
             debug.debug('processing {} {}', 
@@ -282,7 +282,7 @@ var favoritiesListEngine = new function(){
         }
         
         commonUtils.saveIdsToHide(myIdsToHide);
-        commonUtils.registerNoteChangeEvent((id, newNote) => {
+        commonUtils.registerNoteChangeEvent(function(id, newNote){
             var elem = idToElem[id];
             if (!elem){
                 return ;
@@ -290,7 +290,7 @@ var favoritiesListEngine = new function(){
             this.validatePhoneNo(elem, newNote);
             var textarea = dom.getNode(".//textarea[contains(@class, 'user_note_tresc')]", elem);
             textarea.value = newNote;
-        });
+        }.bind(favoritiesListEngine));
         
         // apply UI changes
         debug.info("Applying UI changes on {} elements", ids.length);
@@ -317,6 +317,30 @@ var favoritiesListEngine = new function(){
                 this.validatePhoneNo(elem, txt, id);
             }
         }
+        
+        const blokowane = dom.getNodes("//div[@id='blokowane']//div[contains(@class, 'blokowane_box')]");
+        const blokowaneSize = blokowane.snapshotLength;
+        debug.info('process blokowane, start with {} elements', blokowaneSize); 
+        for (let i=0; i<blokowaneSize; i++){
+            const div = blokowane.snapshotItem(i);
+            let img = dom.getNodes(".//img[contains(@src, 'mini')]", div);
+            if (img.snapshotLength === 0){
+                continue;
+            }
+            img = img.snapshotItem(0);
+
+            let nr = dom.getNodeByCss("*[data-nr]", div);
+            if (nr === null){
+                continue;
+            }
+            nr = nr.dataset.nr;
+            
+            const a = dom.createElem('a', {'href':'/pl/anonse/pokaz/' + nr} );
+            img.parentElement.insertBefore(a, img);
+            img.parentElement.removeChild(img);
+            a.appendChild(img);
+        }
+        
         debug.info("UI changes done");
     }
 
@@ -741,7 +765,7 @@ var anonsEngine = new function() {
         // Options for the observer (which mutations to observe)
         const config = { attributes: false, childList: true, subtree: false };
         // Callback function to execute when mutations are observed
-        const callback = (mutationsList, observer) => {
+        const callback = function(mutationsList, observer) {
             // Use traditional 'for loops' for IE 11
             for(let mutation of mutationsList) {
                 if (mutation.type === 'childList' && mutation.target === notatka){
@@ -752,7 +776,7 @@ var anonsEngine = new function() {
                 }
             }
             observer.takeRecords();
-        };
+        }.bind(this);
 
         // Create an observer instance linked to the callback function
         const observer = new MutationObserver(callback);
@@ -778,7 +802,7 @@ var anonsEngine = new function() {
         var exprHttp = /https?:\/\/[^ <\n\r\t(]+/g; // fucking bad expression :/
         var exprTel = /[0-9]{3}[ -][0-9]{3}[ -][0-9]{3}/g;
         var expr = /(https?:\/\/[^ <\n\r\t]+)|([0-9]{3}[ -][0-9]{3}[ -][0-9]{3})/g;
-        var processor = (linkValue) => {
+        var processor = function(linkValue){
             exprHttp.lastIndex = 0;
             if (exprHttp.exec(linkValue) !== null){
                 const className = linkValue == document.location.href ? 'roksahidden_self' : '';
@@ -789,7 +813,7 @@ var anonsEngine = new function() {
                 return this.linkifyTel(linkValue);
             }
             return linkValue;
-        };
+        }.bind(this);
         dom.traverseChildNodes(notatka, function(node){
             dom.splitNode(node, expr, processor);
         });
@@ -1192,24 +1216,24 @@ var commonUtils = new function(){
 
 var debug = new function() {
     this.isInfoEnabled = () => doDebug > 0;
-    this.isDebugEnabled = () => doDebug > 1;
-    this.isTraceEnabled = () => doDebug > 2;
-    this.warn = function() {
+    this.isDebugEnabled = function() { return doDebug > 1; }
+    this.isTraceEnabled = function() { return doDebug > 2; }
+    this.warn = function(message) {
         this.renderMessage('W', arguments);
     }
-    this.info = function() {
+    this.info = function(message) {
         if (doDebug > 0)
             this.renderMessage('I', arguments);
     }
-    this.debug = function() {
+    this.debug = function(message) {
         if (doDebug > 1)
             this.renderMessage('D', arguments);
     }
-    this.trace = function() {
+    this.trace = function(message) {
         if (doDebug > 2)
             this.renderMessage('T', arguments);
     }
-    this.always = function() {
+    this.always = function(message) {
         this.renderMessage('A', arguments);
     }
     this.renderMessage = function(level, args) {
@@ -1286,6 +1310,24 @@ var dom = new function(){
         return xp;
     }
     
+    this.getNodeByCss = function(cssSelector, rootNode)
+    {
+        if (rootNode === undefined){
+            return document.querySelector(cssSelector);
+        }
+        const nodes = rootNode.querySelectorAll(cssSelector);
+        if (nodes.length == 0){
+            return null;
+        }
+        return nodes[0];
+    }
+
+    this.getNodesByCss = function(cssSelector, rootNode)
+    {
+        const nodes = (rootNode || document).querySelectorAll(cssSelector);
+        return [...nodes];
+    }    
+    
     this.getElemText = function(path, elem, trim){
         var elem2 = this.getNode(path, elem);
         var val = null;
@@ -1301,14 +1343,17 @@ var dom = new function(){
         return val;
     }
     
-    this.createElem = function(tag, attr, text) {
-        var el = document.createElement(tag);
-        if (typeof text !== 'undefined'){
-            el.textContent = text;
+    this.createElem = function(tag, attr, chlid) {
+        const el = document.createElement(tag);
+        if (typeof chlid === 'string' || chlid instanceof String){
+            el.textContent = chlid;
+        } else
+        if (chlid instanceof HTMLElement){
+            el.appendChild(chlid);
         }
         if (typeof attr !== 'undefined')
-            for (var k in attr)
-                el.setAttribute(k, attr[k]);
+            for (let [k, v] of Object.entries(attr))
+                el.setAttribute(k, v);
         return el;
     }
 
