@@ -2,7 +2,7 @@
 // @name           roksahidden_zwei
 // @namespace      roksahdn
 // @description    filtr ukrywający nie interesujące nas ogłoszenia z listy ulubionych
-// @version        10.1.2
+// @version        10.1.3
 // @include        http://*.roksa.pl/*/logowanie*
 // @include        https://*.roksa.pl/*/logowanie*
 // @include        http://*.roksa.pl/*/panel2/*
@@ -560,7 +560,7 @@ var searchListEngine = new function() {
 
     this.createItemFromId = async function(id, cache) {
         const title = cache.title
-        const imgSrc = cache.thumb[cache.thumbIdx] || cache.thumb
+        const imgSrc = typeof cache.thumbIdx !== 'undefined' ? (cache.thumb[cache.thumbIdx] || cache.thumb) : cache.thumb
         const note = await commonUtils.getNote(id)
 
         const template =
@@ -568,13 +568,15 @@ var searchListEngine = new function() {
             '<div class="roksahidden_tooltip_wrapper"><div class="roksahidden_tooltip_2"></div></div></div>'
         let doc = new DOMParser().parseFromString(template, 'text/html')
         dom.getNodeByCss('a', doc).setAttribute('href', '/pl/anonse/pokaz/' + id)
-        const imgElem = dom.getNodeByCss('img', doc)
-        imgElem.setAttribute('src', imgSrc.replace('/mini/', '/mini2/'))
-        const imgErrListener = function(){
-            imgElem.removeEventListener('error', imgErrListener, false)
-            imgElem.setAttribute('src', imgSrc)
+        if (imgSrc){
+            const imgElem = dom.getNodeByCss('img', doc)
+            imgElem.setAttribute('src', imgSrc.replace('/mini/', '/mini2/'))
+            const imgErrListener = function(){
+                imgElem.removeEventListener('error', imgErrListener, false)
+                imgElem.setAttribute('src', imgSrc)
+            }
+            imgElem.addEventListener('error', imgErrListener, false)
         }
-        imgElem.addEventListener('error', imgErrListener, false)
         const nazwaElem = dom.getNodeByCss('.nazwa', doc)
         nazwaElem.innerText = title
         nazwaElem.setAttribute('title', title)
